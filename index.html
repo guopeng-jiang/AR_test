@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>A-Frame DEM Viewer (AR/VR)</title>
+    <meta name="description" content="A-Frame DEM Viewer for AR and VR">
+    <!-- A-Frame Library -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- A-Frame Extras (for ar-hit-test helper, optional but good for reticle) -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+    <!-- Our Custom DEM Terrain Component -->
+    <script src="dem-terrain-component.js"></script>
+    <style>
+        #loader {
+            position: fixed; /* Use fixed to overlay on A-Frame scene */
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 20px;
+            color: white;
+            background-color: rgba(0,0,0,0.7);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 10000; /* Ensure it's above A-Frame canvas */
+            display: none; /* Hidden by default */
+        }
+        /* Simple button for AR mode - you might integrate this better */
+        #ar-button-container {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="loader">Loading DEM...</div>
+
+    <a-scene
+        renderer="colorManagement: true; physicallyCorrectLights: true;"
+        background="color: #ECECEC"
+        ar-hit-test="enabled: false; type: viewer;"
+        cursor="rayOrigin: mouse; fuse: false;"
+        raycaster="objects: .collidable">
+
+        <a-assets>
+            <!-- The DEM image is now typically referenced by the component -->
+            <!-- <img id="demTexture" src="grayscale_raster.png"> -->
+        </a-assets>
+
+        <!-- Lights -->
+        <a-light type="ambient" color="#BBB"></a-light>
+        <a-light type="directional" color="#FFF" intensity="0.8" position="-0.5 1 1"></a-light>
+
+        <!-- Camera Rig for movement and AR/VR -->
+        <a-entity id="cameraRig" position="0 1.6 0">
+             <a-camera id="camera" look-controls wasd-controls="acceleration: 20">
+                <!-- Reticle for AR hit-testing (optional, but helpful) -->
+                <a-entity id="reticle"
+                    geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.015"
+                    material="color: white; shader: flat; transparent: true; opacity: 0.7"
+                    position="0 0 -0.75"
+                    visible="false"
+                    ar-hit-test-target>
+                </a-entity>
+            </a-camera>
+        </a-entity>
+
+        <!-- This entity will hold our DEM terrain -->
+        <!-- It's initially invisible and small, scaled and positioned in AR -->
+        <a-entity id="demHolder" position="0 0 -3" scale="0.1 0.1 0.1" visible="false">
+            <a-entity id="myDemTerrain"
+                dem-terrain="
+                    demImage: grayscale_raster.png;
+                    planeSize: 2;
+                    heightScale: 0.3;
+                    segments: 127;
+                "
+                rotation="-90 0 0"
+                class="collidable"
+                shadow="receive: true; cast: true">
+            </a-entity>
+        </a-entity>
+
+        <!-- Simple floor for non-AR mode -->
+        <a-plane id="ground" position="0 0 -3" rotation="-90 0 0" width="10" height="10" color="#7BC8A4" shadow="receive: true" visible="true"></a-plane>
+
+    </a-scene>
+
+    <div id="ar-button-container">
+        <button id="enterARButton">Enter AR & Place DEM</button>
+    </div>
+
+    <script>
+        // Basic AR mode handling
+        const sceneEl = document.querySelector('a-scene');
+        const demHolderEl = document.getElementById('demHolder');
+        const reticleEl = document.getElementById('reticle');
+        const enterARButton = document.getElementById('enterARButton');
+        const groundPlane = document.getElementById('ground');
+
+        if (sceneEl.is('ar-mode')) { // Or check for AR availability
+            handleARMode();
+        } else {
+            sceneEl.addEventListener('enter-vr', () => {
+                if (sceneEl.is('ar-mode')) {
+                    handleARMode();
+                } else {
+                    // VR Mode or Desktop: Make DEM visible at default location
+                    demHolderEl.setAttribute('visible', 'true');
+                    demHolderEl.setAttribute('scale', '1 1 1'); // Reset scale if it was small
+                    demHolderEl.setAttribute('position', '0 0 -3'); // Example position
+                    groundPlane.setAttribute('visible', 'true');
+                    reticleEl.setAttribute('visible', 'false');
+                    if (enterARButton) enterARButton.style.display = 'none';
+                }
+            });
+             // For desktop, make it visible immediately
+            demHolderEl.setAttribute('visible', 'true');
+            demHolderEl.setAttribute('scale', '1 1 1');
+            demHolderEl.setAttribute('position', '0 0.01 -3'); // Slightly above ground
+            groundPlane.setAttribute('visible', 'true');
+            if (enterARButton && !navigator.xr) { // Hide AR button if XR not supported
+                 enterARButton.style.display = 'none';
+            }
+        }
+
+
+        function handleARMode() {
+            console.log("Attempting to handle AR Mode");
+            demHolderEl.setAttribute('visible', 'false'); // Hide initially
+            groundPlane.setAttribute('visible', 'false'); // Hide default ground in AR
+            reticleEl.setAttribute('visible', 'true');
+            sceneEl.setAttribute('ar-hit-test', 'enabled: true');
+            if (enterARButton) enterARButton.textContent = 'Tap Screen to Place DEM';
+
+            let hasPlaced = false;
+
+            function onSelect(event) {
+                if (hasPlaced) return;
+
+                // The ar-hit-test component on the scene fires this.
+                // If ar-hit-test is on the reticle, it would be event.detail.intersection
+                const hitPoint = event.detail.intersection;
+
+                if (hitPoint) {
+                    demHolderEl.setAttribute('position', hitPoint.point);
+                    // Optional: Adjust rotation based on hit normal if desired
+                    // demHolderEl.object3D.quaternion.copy(hitPoint.quaternion);
+                    demHolderEl.setAttribute('visible', 'true');
+                    demHolderEl.setAttribute('scale', '1 1 1'); // Or desired scale for AR
+
+                    reticleEl.setAttribute('visible', 'false');
+                    sceneEl.setAttribute('ar-hit-test', 'enabled: false'); // Stop hit testing
+                    if (enterARButton) enterARButton.style.display = 'none';
+                    hasPlaced = true;
+                    sceneEl.removeEventListener('select', onSelect); // Remove listener after placement
+                    console.log("DEM Placed in AR");
+                }
+            }
+            sceneEl.addEventListener('select', onSelect); // 'select' event is a generic screen tap in AR
+
+            // Handle "Enter AR" button
+            if(enterARButton) {
+                enterARButton.style.display = 'block'; // Show button
+                enterARButton.addEventListener('click', () => {
+                    sceneEl.enterAR().catch(err => {
+                        console.error("Failed to enter AR:", err);
+                        if (enterARButton) enterARButton.textContent = 'AR Not Supported';
+                    });
+                });
+            }
+        }
+
+        // If XR is available, show AR button
+        if (navigator.xr) {
+            navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                if (supported) {
+                    enterARButton.style.display = 'block';
+                    enterARButton.addEventListener('click', () => {
+                         // Request AR session
+                        sceneEl.enterAR().then(() => {
+                            console.log("Entered AR successfully");
+                            handleARMode();
+                        }).catch(err => {
+                            console.error("Failed to enter AR:", err);
+                            enterARButton.textContent = 'AR Start Failed';
+                        });
+                    });
+                } else {
+                    enterARButton.style.display = 'none';
+                     // Fallback for desktop/VR if AR not supported but XR is (e.g. VR headset)
+                    demHolderEl.setAttribute('visible', 'true');
+                    demHolderEl.setAttribute('scale', '1 1 1');
+                    demHolderEl.setAttribute('position', '0 0.01 -3');
+                    groundPlane.setAttribute('visible', 'true');
+                }
+            });
+        } else {
+            // No XR: Likely desktop browser
+            enterARButton.style.display = 'none';
+            demHolderEl.setAttribute('visible', 'true');
+            demHolderEl.setAttribute('scale', '1 1 1');
+            demHolderEl.setAttribute('position', '0 0.01 -3');
+            groundPlane.setAttribute('visible', 'true');
+            console.log("XR Not available, showing DEM in standard view.");
+        }
+
+    </script>
+</body>
+</html>
