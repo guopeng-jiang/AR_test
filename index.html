@@ -2,25 +2,15 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>AR/VR DEM Viewer</title>
+    <title>AR/VR DEM Viewer with Sampler</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="js/dem-components.js"></script>
-    <!-- Optional: For more advanced movement controls if wasd-controls aren't enough -->
-    <!-- <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script> -->
     <style>
         body { margin: 0; overflow: hidden; }
         #loader {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 20px;
-            color: white;
-            background-color: rgba(0,0,0,0.8);
-            padding: 20px;
-            border-radius: 10px;
-            z-index: 10001;
-            display: none;
+            position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 20px; color: white; background-color: rgba(0,0,0,0.8);
+            padding: 20px; border-radius: 10px; z-index: 10001; display: none;
         }
     </style>
 </head>
@@ -31,12 +21,12 @@
              background="color: #111122"
              antialias="true"
              renderer="colorManagement: true;"
-             stats="false"
-             debug="false"
-             ui-wrapper="false">
+             stats="false" debug="false" ui-wrapper="false">
 
         <a-entity id="ar-scale-adjuster-wrapper"
                   ar-scale-adjuster="arScale: 0.05; vrScale: 0.5; arYOffset: 0; vrYOffset: 0; defaultPosVR: 0 -1 -3; defaultPosAR: 0 -0.5 -1.5">
+            <!-- The DEM terrain entity. It needs an ID for the sampler to target it. -->
+            <!-- It will also be automatically given the 'collidable' class by the dem-terrain component. -->
             <a-entity id="dem-display"
                       dem-terrain="demImagePath: grayscale_raster.png;
                                    planeSize: 50;
@@ -46,38 +36,44 @@
             </a-entity>
         </a-entity>
 
-        <!-- Camera Rig -->
-        <!-- wasd-controls on the rig allows thumbstick movement if controllers are configured -->
         <a-entity id="rig" position="0 1.6 0"
                   wasd-controls="enabled: true; fly: true; acceleration: 35;">
-            <!-- Note: For wasd-controls to be driven by VR controller,
-                 the controller component (e.g., oculus-touch-controls)
-                 often needs `wasd-controls-enabled: true` (see left controller below) -->
             <a-camera look-controls="enabled: true; magicWindowTrackingEnabled: false">
             </a-camera>
 
-            <!-- Left hand controller - Typically for movement -->
             <a-entity id="left-controller"
                      oculus-touch-controls="hand: left; model: true; wasd-controls-enabled: true"
                      vive-controls="hand: left; model: true; wasd-controls-enabled: true"
-                     windows-motion-controls="hand: left; model: true" /* WMR might not directly drive wasd-controls */
-                     generic-tracked-controller="hand: left" /* Generic fallback */
+                     windows-motion-controls="hand: left; model: true"
+                     generic-tracked-controller="hand: left"
                      visible="true">
-                     <!-- For more advanced movement, you might use aframe-extras movement-controls on the rig
-                          and point it to this controller:
-                          Example on rig: movement-controls="controller: #left-controller; fly: true;"
-                          Then remove wasd-controls from rig and wasd-controls-enabled from controller.
-                     -->
             </a-entity>
 
-            <!-- Right hand controller - For zoom -->
+            <!-- Right hand controller - For zoom AND sampling -->
             <a-entity id="right-controller"
                      oculus-touch-controls="hand: right; model: true;"
                      vive-controls="hand: right; model: true;"
                      windows-motion-controls="hand: right; model: true"
                      generic-tracked-controller="hand: right"
                      vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; zoomSpeed: 0.1; minScale: 0.05; maxScale: 2.0;"
+                     <!-- Raycaster for sampling. Intersects with '.collidable' objects (our DEM) -->
+                     raycaster="objects: .collidable; far: 50; showLine: true; lineColor: yellow; lineOpacity: 0.7"
+                     <!-- Value sampler component -->
+                     vr-value-sampler="demTerrainEl: #dem-display; displayPanelEl: #sampler-display-panel"
                      visible="true">
+
+                <!-- Sampler Display Panel - Child of the controller -->
+                <!-- This text panel will show the sampled value. -->
+                <a-entity id="sampler-display-panel"
+                          geometry="primitive: plane; width: 0.4; height: 0.25"
+                          material="color: #222222; opacity: 0.9"
+                          text="value: Point at DEM\n& hold trigger;
+                                color: #FFFFFF; align: left; wrapCount: 25;
+                                width: 0.38; xOffset: 0.01; zOffset: 0.01"
+                          position="0 0.05 -0.2"  <!-- Position it slightly in front and above the controller's grip -->
+                          rotation="-30 0 0"     <!-- Tilt it for better readability -->
+                          visible="false">       <!-- Initially hidden -->
+                </a-entity>
             </a-entity>
         </a-entity>
 

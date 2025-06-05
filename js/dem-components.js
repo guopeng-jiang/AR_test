@@ -123,8 +123,14 @@ AFRAME.registerComponent('ar-scale-adjuster', {
 });
 
 
+/* global AFRAME, THREE */
+
+// ... (ar-scale-adjuster and vr-dem-zoom components remain the same) ...
+// ... (Keep them here if they are in your file) ...
+
+
 // =====================================
-// DEM Terrain Component
+// DEM Terrain Component (MODIFIED)
 // =====================================
 AFRAME.registerComponent('dem-terrain', {
     schema: {
@@ -132,14 +138,20 @@ AFRAME.registerComponent('dem-terrain', {
         planeSize: { type: 'number', default: 100 },
         heightScale: { type: 'number', default: 10 },
         segments: { type: 'number', default: 255 },
-        textureRepeat: { type: 'vec2', default: {x: 1, y: 1} }, // For texture tiling
-        color: {type: 'color', default: '#787878'}, // Default terrain color if no texture
-        useImageAsTexture: {type: 'boolean', default: true} // Use DEM image also for color
+        textureRepeat: { type: 'vec2', default: {x: 1, y: 1} },
+        color: {type: 'color', default: '#787878'},
+        useImageAsTexture: {type: 'boolean', default: true}
     },
 
     init: function () {
         this.loaderDiv = document.getElementById('loader');
         if (this.loaderDiv) this.loaderDiv.style.display = 'block';
+
+        // Properties to store DEM data for other components
+        this.demDataArray = null;
+        this.demWidth = 0;
+        this.demHeight = 0;
+        this.isLoaded = false; // Flag to indicate if DEM data is ready
 
         this.loadDEM();
     },
@@ -147,18 +159,16 @@ AFRAME.registerComponent('dem-terrain', {
     loadDEM: function () {
         const { demImagePath } = this.data;
         const imgLoader = new THREE.ImageLoader();
-
-        // Handle CORS if the image is on a different domain
-        // imgLoader.setCrossOrigin('anonymous'); // Uncomment if needed
+        // imgLoader.setCrossOrigin('anonymous');
 
         imgLoader.load(demImagePath,
             (image) => {
-                const imgWidth = image.width;
-                const imgHeight = image.height;
+                this.demWidth = image.width;
+                this.demHeight = image.height;
 
                 const canvas = document.createElement('canvas');
-                canvas.width = imgWidth;
-                canvas.height = imgHeight;
+                canvas.width = this.demWidth;
+                canvas.height = this.demHeight;
                 const context = canvas.getContext('2d');
                 if (!context) {
                     console.error("Failed to get 2D context from canvas!");
@@ -169,18 +179,25 @@ AFRAME.registerComponent('dem-terrain', {
 
                 let imageData;
                 try {
-                    imageData = context.getImageData(0, 0, imgWidth, imgHeight);
+                    imageData = context.getImageData(0, 0, this.demWidth, this.demHeight);
                 } catch (e) {
                     console.error("Error getting imageData (potential CORS issue):", e);
-                    if (this.loaderDiv) this.loaderDiv.textContent = 'Error getting image data. Check console for CORS/security issues if loading from file:// or cross-origin.';
-                    // For file://, try running a local web server.
+                    if (this.loaderDiv) this.loaderDiv.textContent = 'Error getting image data. Check console.';
                     return;
                 }
-                const data = imageData.data;
-                this.createTerrainMesh(data, imgWidth, imgHeight);
+                this.demDataArray = imageData.data; // Store for sampling
+                this.isLoaded = true; // Mark as loaded
+                this.el.emit('dem-loaded', { // Emit an event that data is ready
+                    width: this.demWidth,
+                    height: this.demHeight,
+                    data: this.demDataArray
+                }, false);
+
+
+                this.createTerrainMesh(this.demDataArray, this.demWidth, this.demHeight);
                 if (this.loaderDiv) this.loaderDiv.style.display = 'none';
             },
-            undefined, // onProgress callback (optional)
+            undefined,
             (error) => {
                 console.error('An error occurred loading the DEM image:', error);
                 if (this.loaderDiv) {
@@ -188,8 +205,7 @@ AFRAME.registerComponent('dem-terrain', {
                          this.loaderDiv.textContent = `Error 404: Image not found at ${demImagePath}. Check path.`;
                     } else if (error.message && error.message.includes('Access-Control-Allow-Origin')) {
                         this.loaderDiv.textContent = `CORS Error: Cannot load ${demImagePath}. Serve files from a web server or check CORS headers.`;
-                    }
-                     else {
+                    } else {
                         this.loaderDiv.textContent = 'Error loading DEM. Check console.';
                     }
                 }
@@ -202,22 +218,44 @@ AFRAME.registerComponent('dem-terrain', {
 
         const geometry = new THREE.PlaneGeometry(planeSize, planeSize, segments, segments);
         const positions = geometry.attributes.position;
+        const uvs = geometry.attributes.uv; // Get UVs for later mapping
 
         for (let i = 0; i < positions.count; i++) {
-            const x = positions.getX(i); // Plane X: -planeSize/2 to +planeSize/2
-            const y = positions.getY(i); // Plane Y: -planeSize/2 to +planeSize/2 (before rotation)
+            // Get original plane X, Y (which are world X, Z after rotation)
+            const planeX = positions.getX(i);
+            const planeY = positions.getY(i); // This is original Y of plane, becomes Z for UV mapping
 
-            let u = (x / planeSize) + 0.5;
-            let v = 1.0 - ((y / planeSize) + 0.5); // Invert V for image coords
+            // Use the UV attribute directly from PlaneGeometry.
+            // PlaneGeometry UVs have (0,0) at bottom-left.
+            // Image UVs often have (0,0) at top-left.
+            let u = uvs.getX(i);
+            let v = uvs.getY(i); // v is 0 at bottom, 1 at top of plane
 
-            u = Math.max(0, Math.min(1, u));
-            v = Math.max(0, Math.min(1, v));
+            // To map to image (0,0 at top-left), we need to flip v if necessary.
+            // The DEM data access uses (0,0) at top-left from canvas.
+            // PlaneGeometry vertices go row by row, bottom-left to top-right.
+            // Image data is typically stored top-to-bottom, left-to-right.
+            // So, if plane's v=0 is image's v=1 (max_height), and plane's v=1 is image's v=0:
+            // This depends on how you interpret your image data vs plane construction.
+            // Let's assume current u,v from PlaneGeometry are fine for direct lookup if
+            // we consider the DEM values directly without worrying about visual texture mapping inversion for a moment.
+            // The critical part is that the height displacement logic in the loop should match
+            // how getDEMValueAtUV will retrieve the data.
 
-            const demX = Math.floor(u * (demWidth - 1));
-            const demY = Math.floor(v * (demHeight - 1));
+            // The UVs for displacement should match the UVs for sampling later.
+            // The loop below uses a different u,v calculation than the geometry.attributes.uv.
+            // Let's use the one from your original script for consistency for displacement.
+            let displacement_u = (planeX / planeSize) + 0.5;
+            let displacement_v = 1.0 - ((planeY / planeSize) + 0.5); // Invert V for image coordinates
+
+            displacement_u = Math.max(0, Math.min(1, displacement_u));
+            displacement_v = Math.max(0, Math.min(1, displacement_v));
+
+            const demX = Math.floor(displacement_u * (demWidth - 1));
+            const demY = Math.floor(displacement_v * (demHeight - 1));
 
             const pixelIndex = (demY * demWidth + demX) * 4;
-            const grayscaleValue = demData[pixelIndex] / 255; // Assuming R is intensity
+            const grayscaleValue = demData[pixelIndex] / 255;
 
             positions.setZ(i, grayscaleValue * heightScale);
         }
@@ -226,19 +264,16 @@ AFRAME.registerComponent('dem-terrain', {
         let material;
         if (useImageAsTexture) {
             const textureLoader = new THREE.TextureLoader();
-            // textureLoader.setCrossOrigin('anonymous'); // If image for texture is also cross-origin
             const demTexture = textureLoader.load(demImagePath, (tex) => {
                 tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
                 tex.repeat.set(textureRepeat.x, textureRepeat.y);
                 tex.needsUpdate = true;
-                // A-Frame's renderer handles color space if 'colorManagement: true' is on <a-scene>
-                // tex.colorSpace = THREE.SRGBColorSpace; (No longer manually set this way in recent THREE with A-Frame)
             });
             material = new THREE.MeshStandardMaterial({
                 map: demTexture,
                 roughness: 0.9,
                 metalness: 0.1,
-                side: THREE.FrontSide // Typically FrontSide is enough unless you see through it
+                side: THREE.FrontSide
             });
         } else {
             material = new THREE.MeshStandardMaterial({
@@ -250,22 +285,203 @@ AFRAME.registerComponent('dem-terrain', {
         }
 
         const terrainMesh = new THREE.Mesh(geometry, material);
-        terrainMesh.rotation.x = -Math.PI / 2; // Rotate plane to be horizontal (XZ plane)
-
-        // For A-Frame, you set shadows on the entity, not directly on the mesh material in the same way
-        // The entity will pick up shadow system settings from A-Frame if configured.
-        // this.el.setAttribute('shadow', 'cast: true; receive: true'); // If you want shadows
-
+        terrainMesh.rotation.x = -Math.PI / 2;
         this.el.setObject3D('dem-mesh', terrainMesh);
-        console.log("DEM Terrain mesh added to A-Frame entity.");
+
+        // Add 'collidable' class for raycaster if not present
+        if (!this.el.classList.contains('collidable')) {
+            this.el.classList.add('collidable');
+        }
+        console.log("DEM Terrain mesh added to A-Frame entity and marked collidable.");
+    },
+
+    /**
+     * Gets the raw DEM value at the given UV coordinates.
+     * UVs are expected to be in the range [0, 1], where (0,0) is typically top-left of the image.
+     * The PlaneGeometry.attributes.uv has (0,0) at bottom-left, so conversion might be needed
+     * depending on where the input UVs come from (e.g., raycaster.getIntersection).
+     * @param {number} u - U coordinate [0, 1]
+     * @param {number} v - V coordinate [0, 1] (0 at top, 1 at bottom of image typically)
+     * @returns {number|null} The grayscale value (0-255) or null if data not ready or out of bounds.
+     */
+    getDEMValueAtUV: function (u, v) {
+        if (!this.isLoaded || !this.demDataArray) {
+            // console.warn("DEM data not loaded yet for sampling.");
+            return null;
+        }
+
+        // Clamp UVs
+        const u_clamped = Math.max(0, Math.min(1, u));
+        // For v, if raycaster UVs are (0,0) at bottom-left of texture like PlaneGeometry,
+        // and image data is (0,0) at top-left, we need to flip v.
+        const v_clamped = Math.max(0, Math.min(1, v)); // Raycaster UVs are usually 0-1, (0,0) at one corner.
+
+        // Map UV coordinates to DEM pixel coordinates
+        // Ensure demWidth and demHeight are available
+        const demX = Math.floor(u_clamped * (this.demWidth - 1));
+        const demY = Math.floor(v_clamped * (this.demHeight - 1)); // v_clamped is used here.
+
+        // Get grayscale value (assuming R, G, B are the same for grayscale)
+        // Index = (y * width + x) * 4 (for RGBA)
+        const pixelIndex = (demY * this.demWidth + demX) * 4;
+
+        if (pixelIndex < 0 || pixelIndex >= this.demDataArray.length - 3) {
+            // console.warn("Calculated pixelIndex is out of bounds:", pixelIndex);
+            return null; // Out of bounds
+        }
+        const grayscaleValue = this.demDataArray[pixelIndex]; // R channel (0-255)
+        return grayscaleValue;
     },
 
     remove: function () {
-        // Clean up the mesh if the component is removed
         this.el.removeObject3D('dem-mesh');
         if (this.loaderDiv) this.loaderDiv.style.display = 'none';
+        this.isLoaded = false;
+        this.demDataArray = null;
     }
 });
+
+
+// =====================================
+// VR Value Sampler Component
+// =====================================
+AFRAME.registerComponent('vr-value-sampler', {
+    schema: {
+        demTerrainEl: { type: 'selector', default: '#dem-display' }, // Selector for the DEM terrain entity
+        triggerEvent: { type: 'string', default: 'triggerdown' },   // Event to start sampling
+        releaseEvent: { type: 'string', default: 'triggerup' },     // Event to stop sampling
+        displayPanelEl: { type: 'selector', default: '#sampler-display-panel' } // Selector for the text display
+    },
+
+    init: function () {
+        this.demTerrainComponent = null;
+        this.displayPanelComponent = null;
+        this.isSampling = false;
+        this.raycasterEl = this.el; // Assuming raycaster is on this controller entity
+
+        // Get DEM terrain component
+        const demEl = this.data.demTerrainEl;
+        if (demEl) {
+            if (demEl.hasLoaded) {
+                this.demTerrainComponent = demEl.components['dem-terrain'];
+                 if (!this.demTerrainComponent) console.error("vr-value-sampler: dem-terrain component not found on", demEl.id);
+            } else {
+                demEl.addEventListener('loaded', () => {
+                    this.demTerrainComponent = demEl.components['dem-terrain'];
+                    if (!this.demTerrainComponent) console.error("vr-value-sampler: dem-terrain component not found on", demEl.id, "after load.");
+                }, {once: true});
+            }
+             // Also listen for the custom 'dem-loaded' event from dem-terrain
+            demEl.addEventListener('dem-loaded', () => {
+                if(!this.demTerrainComponent) this.demTerrainComponent = demEl.components['dem-terrain'];
+                // console.log("vr-value-sampler: DEM data is confirmed loaded by dem-terrain.");
+            }, {once: true});
+        } else {
+            console.error("vr-value-sampler: demTerrainEl not found.");
+        }
+
+
+        // Get Display Panel component
+        const panelEl = this.data.displayPanelEl;
+        if (panelEl) {
+            if (panelEl.hasLoaded) {
+                this.displayPanelComponent = panelEl.components.text;
+                if (!this.displayPanelComponent) console.error("vr-value-sampler: text component not found on display panel", panelEl.id);
+                else panelEl.setAttribute('visible', false); // Hide initially
+            } else {
+                panelEl.addEventListener('loaded', () => {
+                    this.displayPanelComponent = panelEl.components.text;
+                    if (!this.displayPanelComponent) console.error("vr-value-sampler: text component not found on display panel", panelEl.id, "after load.");
+                    else panelEl.setAttribute('visible', false); // Hide initially
+                }, {once: true});
+            }
+        } else {
+            console.error("vr-value-sampler: displayPanelEl not found.");
+        }
+
+        this.onTriggerDown = this.onTriggerDown.bind(this);
+        this.onTriggerUp = this.onTriggerUp.bind(this);
+
+        this.el.addEventListener(this.data.triggerEvent, this.onTriggerDown);
+        this.el.addEventListener(this.data.releaseEvent, this.onTriggerUp);
+
+        // Ensure raycaster is configured to intersect 'collidable'
+        if (!this.raycasterEl.hasAttribute('raycaster')) {
+            console.warn("vr-value-sampler: Controller element does not have a raycaster component. Adding a default one.");
+            this.raycasterEl.setAttribute('raycaster', 'objects: .collidable; far: 50; showLine: true');
+        } else {
+            const currentRaycasterObjects = this.raycasterEl.getAttribute('raycaster').objects;
+            if (currentRaycasterObjects && !currentRaycasterObjects.includes('.collidable')) {
+                 this.raycasterEl.setAttribute('raycaster', 'objects', currentRaycasterObjects + ', .collidable');
+            } else if (!currentRaycasterObjects) {
+                 this.raycasterEl.setAttribute('raycaster', 'objects', '.collidable');
+            }
+        }
+        // console.log("vr-value-sampler initialized for controller:", this.el.id);
+    },
+
+    onTriggerDown: function () {
+        this.isSampling = true;
+        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', true);
+        // console.log("Sampling started");
+    },
+
+    onTriggerUp: function () {
+        this.isSampling = false;
+        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', false);
+        // console.log("Sampling stopped");
+    },
+
+    tick: function () {
+        if (!this.isSampling || !this.demTerrainComponent || !this.demTerrainComponent.isLoaded || !this.displayPanelComponent) {
+            if (this.isSampling && this.data.displayPanelEl && this.data.displayPanelEl.getAttribute('visible')) {
+                 // Keep display panel visible but maybe show "Waiting for DEM..."
+                 if (!this.demTerrainComponent || !this.demTerrainComponent.isLoaded) {
+                    this.displayPanelComponent.el.setAttribute('text', 'value', 'DEM loading...');
+                 }
+            }
+            return;
+        }
+
+        const intersection = this.raycasterEl.components.raycaster.getIntersection(this.data.demTerrainEl);
+
+        if (intersection) {
+            const uv = intersection.uv; // This is THREE.Vector2, (0,0) is usually at a corner of the texture.
+                                        // For PlaneGeometry, it's bottom-left.
+            if (uv) {
+                // DEM image data typically has (0,0) at top-left.
+                // PlaneGeometry UVs have (0,0) at bottom-left.
+                // So, if raycaster UVs match PlaneGeometry UVs, v_image = 1.0 - v_plane.
+                const imageU = uv.x;
+                const imageV = 1.0 - uv.y; // Flip V coordinate
+
+                const value = this.demTerrainComponent.getDEMValueAtUV(imageU, imageV);
+
+                if (value !== null) {
+                    const worldPoint = intersection.point;
+                    this.displayPanelComponent.el.setAttribute('text', 'value', `Value: ${value}\nPos: ${worldPoint.x.toFixed(2)}, ${worldPoint.y.toFixed(2)}, ${worldPoint.z.toFixed(2)}\nUV: ${imageU.toFixed(3)}, ${imageV.toFixed(3)}`);
+                    // Position the panel near the intersection point or on the controller
+                    // Example: Position on controller, slightly offset
+                    // this.displayPanelComponent.el.setAttribute('position', '0.1 0 -0.1'); // Adjust as needed relative to controller
+                } else {
+                    this.displayPanelComponent.el.setAttribute('text', 'value', 'Out of bounds or\nDEM not ready');
+                }
+            } else {
+                 this.displayPanelComponent.el.setAttribute('text', 'value', 'No UV data\nat intersection');
+            }
+        } else {
+            this.displayPanelComponent.el.setAttribute('text', 'value', 'Point at DEM\n& hold trigger');
+        }
+    },
+
+    remove: function () {
+        this.el.removeEventListener(this.data.triggerEvent, this.onTriggerDown);
+        this.el.removeEventListener(this.data.releaseEvent, this.onTriggerUp);
+        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', false);
+    }
+});
+
+// ... (Make sure vr-dem-zoom and ar-scale-adjuster are here if you had them previously)
 
 // Optional: Stars component (if you want to use it from index.html)
 AFRAME.registerComponent('stars', {
