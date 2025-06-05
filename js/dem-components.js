@@ -298,3 +298,126 @@ AFRAME.registerComponent('stars', {
         this.el.removeObject3D('stars-points');
     }
 });
+
+// =====================================
+// VR DEM Zoom Component
+// =====================================
+AFRAME.registerComponent('vr-dem-zoom', {
+    schema: {
+        targetEl: { type: 'selector', default: '#ar-scale-adjuster-wrapper' }, // Entity to scale
+        zoomSpeed: { type: 'number', default: 0.05 },   // How fast to zoom (adjust sensitivity)
+        minScale: { type: 'number', default: 0.01 },    // Min uniform scale for the target
+        maxScale: { type: 'number', default: 5.0 },     // Max uniform scale for the target
+        inputEvents: { type: 'array', default: ['thumbstickmoved', 'axismove'] } // Events to listen for
+    },
+
+    init: function () {
+        this.targetEntity = null;
+        this.isVR = false;
+        this.eventHandlers = {}; // To store bound event handlers for proper removal
+
+        const targetSelector = this.data.targetEl;
+        if (targetSelector) {
+            if (targetSelector.hasLoaded) {
+                this.targetEntity = targetSelector;
+            } else {
+                targetSelector.addEventListener('loaded', () => {
+                    this.targetEntity = targetSelector;
+                }, { once: true }); // Ensure listener is added only once
+            }
+        } else {
+            // If the selector itself is null (e.g. invalid ID provided in HTML)
+            const targetId = this.el.getAttribute('vr-dem-zoom')?.targetEl || this.data.targetEl; // Try to get raw string
+            console.warn(`VR DEM Zoom: Target selector '${targetId}' did not initially find an entity. Will retry on scene load if it was a string.`);
+            if (typeof targetId === 'string' && targetId.startsWith('#')) {
+                this.el.sceneEl.addEventListener('loaded', () => {
+                    this.targetEntity = document.querySelector(targetId);
+                    if (!this.targetEntity) {
+                        console.error(`VR DEM Zoom: Target entity '${targetId}' still not found after scene load.`);
+                    }
+                }, { once: true });
+            }
+        }
+
+
+        this.onEnterVR = () => { this.isVR = true; };
+        this.onExitVR = () => { this.isVR = false; };
+
+        this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
+        this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
+
+        this.data.inputEvents.forEach(eventName => {
+            // Bind the handler to `this` context and store it
+            const handler = this.handleControllerInput.bind(this);
+            this.eventHandlers[eventName] = handler;
+            this.el.addEventListener(eventName, handler);
+        });
+        // console.log("vr-dem-zoom initialized for controller:", this.el.id);
+    },
+
+    handleControllerInput: function (evt) {
+        if (!this.isVR || !this.targetEntity) return;
+
+        let stickY = 0;
+
+        if (evt.type === 'thumbstickmoved' && evt.detail) {
+            // A-Frame standard: evt.detail.y is negative for forward, positive for backward.
+            stickY = evt.detail.y || 0;
+            // console.log(this.el.id, "thumbstickmoved Y:", stickY);
+        } else if (evt.type === 'axismove' && evt.detail && evt.detail.axis) {
+            // axismove is more raw. The Y axis index can vary.
+            // Assuming this component is on the RIGHT controller.
+            // Oculus Touch right thumbstick Y is typically axis[3] (negative for forward).
+            // Vive right trackpad Y can be axis[1] (after mapping).
+            if (this.el.id && this.el.id.toLowerCase().includes('right')) {
+                if (evt.detail.axis.length > 3) stickY = evt.detail.axis[3]; // Oculus right Y
+                else if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1]; // Vive right Y (mapped) or generic
+            } else if (this.el.id && this.el.id.toLowerCase().includes('left')) {
+                if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1]; // Oculus/Vive left Y
+            } else { // Fallback for unknown controller, try second reported axis
+                if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1];
+            }
+            // console.log(this.el.id, "axismove Y (raw):", stickY, "All axes:", evt.detail.axis);
+        }
+
+
+        if (Math.abs(stickY) > 0.05) { // Deadzone to prevent drift
+            // If stickY is negative (thumbstick pushed forward), we want to zoom IN (increase scale).
+            // If stickY is positive (thumbstick pulled backward), we want to zoom OUT (decrease scale).
+            // Scale factor calculation:
+            // Forward (stickY is neg): 1 - (negative * speed) = 1 + (positive_val) => scale > 1 (zoom in)
+            // Backward (stickY is pos): 1 - (positive * speed) = 1 - (positive_val) => scale < 1 (zoom out)
+            const scaleFactor = 1 - (stickY * this.data.zoomSpeed);
+            this.updateScale(scaleFactor);
+        }
+    },
+
+    updateScale: function (factor) {
+        if (!this.targetEntity) {
+            // console.warn("VR DEM Zoom: Attempted to update scale but targetEntity is null.");
+            return;
+        }
+
+        const currentScale = this.targetEntity.object3D.scale; // Direct THREE.js Vector3 access
+        let newScaleVal = currentScale.x * factor; // Assuming uniform scaling applied to x and then used for all
+
+        newScaleVal = Math.min(Math.max(newScaleVal, this.data.minScale), this.data.maxScale);
+
+        this.targetEntity.setAttribute('scale', { x: newScaleVal, y: newScaleVal, z: newScaleVal });
+        // console.log("Target scale updated to:", newScaleVal);
+    },
+
+    remove: function () {
+        // Clean up scene event listeners
+        if (this.onEnterVR) this.el.sceneEl.removeEventListener('enter-vr', this.onEnterVR);
+        if (this.onExitVR) this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
+
+        // Clean up controller event listeners
+        this.data.inputEvents.forEach(eventName => {
+            if (this.eventHandlers[eventName]) {
+                this.el.removeEventListener(eventName, this.eventHandlers[eventName]);
+            }
+        });
+        this.eventHandlers = {}; // Clear stored handlers
+    }
+});
