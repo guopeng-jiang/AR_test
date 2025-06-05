@@ -1,395 +1,94 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>A-Frame DEM Viewer (AR/VR/Desktop)</title>
-    <meta name="description" content="Interactive DEM Viewer with AR Passthrough, VR, and Desktop modes.">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <!-- A-Frame Library -->
-    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
-    <!-- Our Custom DEM Terrain Component -->
-    <script src="dem-terrain-component.js"></script>
-    <!-- orbit-controls -->
-    <script src="https://unpkg.com/aframe-orbit-controls@1.0.0/dist/aframe-orbit-controls.min.js"></script>
+    <meta charset="UTF-8">
+    <title>AR/VR DEM Viewer</title>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <!-- We will create this js/dem-components.js file next -->
+    <script src="js/dem-components.js"></script>
     <style>
-        body {
-            margin: 0;
-            font-family: sans-serif;
-            overflow: hidden; /* Prevent scrollbars if scene slightly overflows */
-        }
+        body { margin: 0; overflow: hidden; }
         #loader {
-            position: fixed;
+            position: fixed; /* Use fixed for overlay */
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            font-size: 1.2em;
+            font-size: 20px;
             color: white;
             background-color: rgba(0,0,0,0.8);
-            padding: 20px 30px;
+            padding: 20px;
             border-radius: 10px;
-            z-index: 10000;
-            display: none; /* Hidden by default, shown by JS */
-            text-align: center;
-        }
-        #ui-container { /* For DOM Overlay */
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            padding: 10px;
-            background-color: rgba(0,0,0,0.5);
-            border-radius: 8px;
-        }
-        #ui-container button {
-            padding: 12px 18px;
-            font-size: 1em;
-            border: none;
-            background-color: #007bff;
-            color: white;
-            border-radius: 5px;
-            cursor: pointer;
-            min-width: 150px;
-        }
-        #ui-container button:disabled {
-            background-color: #6c757d;
-            cursor: not-allowed;
-        }
-        #status-message {
-            color: white;
-            font-size: 0.9em;
+            z-index: 10001; /* Ensure it's above A-Frame canvas */
+            display: none; /* Hidden by default, shown by component */
         }
     </style>
 </head>
 <body>
-    <div id="loader">Loading DEM Data...</div>
+    <!-- Loader div from your original DEM viewer -->
+    <div id="loader">Loading DEM...</div>
 
-    <a-scene
-        id="myScene"
-        renderer="colorManagement: true; physicallyCorrectLights: true;"
-        background="color: #222222" <!-- Dark BG for desktop/VR, AR will make it transparent -->
-        webxr="
-            optionalFeatures: dom-overlay, hit-test, local-floor, bounded-floor, anchors, hand-tracking;
-            overlayElement: #ui-container;"
-        ar-hit-test="enabled: false; targetEl: #reticle; type: viewer;"
-        cursor="rayOrigin: mouse; fuse: false;"
-        raycaster="objects: .collidable;">
+    <a-scene xr-mode-ui="XRMode:xr"
+             background="color: #111122" <!-- Darker background for terrain -->
+             antialias="true"
+             renderer="colorManagement: true;" <!-- Important for correct colors with MeshStandardMaterial -->
+             stats="false"
+             debug="false"
+             ui-wrapper="false">
 
-        <a-assets>
-            <!-- DEM image path is set in the component's properties -->
-        </a-assets>
-
-        <!-- Lighting -->
-        <a-light type="ambient" color="#888" intensity="0.8"></a-light>
-        <a-light type="directional" color="#FFF" intensity="1.0" position="-1 2 1.5" castShadow="true"></a-light>
-
-        <!-- Camera Rig -->
-        <a-entity id="cameraRig">
-            <a-camera id="camera"
-                position="0 1.6 2" <!-- Initial good desktop/VR viewing position -->
-                look-controls="enabled: true"
-                orbit-controls="target: 0 0 0; enableDamping: true;"
-                wasd-controls="enabled: true; acceleration: 30">
-                <a-entity id="reticle"
-                    geometry="primitive: ring; radiusInner: 0.015; radiusOuter: 0.02;"
-                    material="color: white; shader: flat; transparent: true; opacity: 0.6;"
-                    position="0 0 -1" <!-- Reticle distance from camera -->
-                    visible="false"
-                    ar-hit-test-target> <!-- For aframe-extras behavior if you add it, or targetEl on scene -->
-                </a-entity>
-            </a-camera>
-        </a-entity>
-
-        <!-- DEM Holder: Initially hidden and far away -->
-        <a-entity id="demHolder" position="0 -1000 0" scale="1 1 1" visible="false">
-            <a-entity id="myDemTerrain"
-                dem-terrain="
-                    demImage: grayscale_raster.png;
-                    planeSize: 2;
-                    heightScale: 0.3;
-                    segments: 127;
-                "
-                rotation="-90 0 0"
-                class="collidable"
-                shadow="receive: true; cast: true">
+        <!--
+            The 'ar-scale-adjuster-wrapper' will use the ar-scale-adjuster component
+            to handle scaling and positioning of its children in AR/VR.
+            We'll place our DEM terrain inside this.
+        -->
+        <a-entity id="ar-scale-adjuster-wrapper"
+                  ar-scale-adjuster="arScale: 0.05; vrScale: 0.5; arYOffset: 0; vrYOffset: 0; defaultPosVR: 0 -1 -3; defaultPosAR: 0 -0.5 -1.5">
+            <!--
+                This entity will hold our DEM terrain.
+                The component 'dem-terrain' will be responsible for loading and creating it.
+                Adjust demImagePath, planeSize, heightScale, and segments as needed.
+            -->
+            <a-entity id="dem-display"
+                      dem-terrain="demImagePath: grayscale_raster.png;
+                                   planeSize: 50;
+                                   heightScale: 5;
+                                   segments: 200;"
+                      position="0 0 0">
             </a-entity>
         </a-entity>
 
-        <!-- Simple ground for Desktop/VR mode, hidden in AR -->
-        <a-plane id="groundPlane"
-            position="0 0 0"
-            rotation="-90 0 0"
-            width="20" height="20"
-            color="#444"
-            shadow="receive: true"
-            visible="true">
-        </a-plane>
+        <!-- Camera Rig (similar to your solar system example) -->
+        <a-entity id="rig" position="0 1.6 0">
+            <a-camera look-controls="enabled: true; magicWindowTrackingEnabled: false"
+                      wasd-controls="enabled: true">
+            </a-camera>
+
+            <!-- Optional: Controllers for future interactions (like VR zoom if you re-add it) -->
+            <a-entity id="left-controller"
+                     oculus-touch-controls="hand: left"
+                     vive-controls="hand: left"
+                     windows-motion-controls="hand: left"
+                     generic-tracked-controller="hand: left"
+                     visible="true">
+            </a-entity>
+
+            <a-entity id="right-controller"
+                     oculus-touch-controls="hand: right"
+                     vive-controls="hand: right"
+                     windows-motion-controls="hand: right"
+                     generic-tracked-controller="hand: right"
+                     visible="true">
+            </a-entity>
+        </a-entity>
+
+        <!-- Lighting - A-Frame lights will illuminate the DEM -->
+        <a-light type="ambient" color="#888888" intensity="0.8"></a-light>
+        <a-light type="directional" color="#FFFFFF" intensity="1.0" position="-1 1.5 1"></a-light>
+        <a-light type="directional" color="#FFFFFF" intensity="0.5" position="1 1 -1"></a-light>
+
+
+        <!-- Optional: Stars background (can be nice for VR) -->
+        <!-- <a-entity stars="count: 1000; radius: 100; color: #CCCCCC"></a-entity> -->
+
     </a-scene>
-
-    <!-- UI Elements for DOM Overlay -->
-    <div id="ui-container">
-        <div id="status-message">Initializing...</div>
-        <button id="enterARButton" disabled>Enter AR Passthrough</button>
-        <button id="enterVRButton" disabled>Enter VR</button>
-        <button id="placeDemButton" style="display:none;">Tap Screen/Trigger to Place DEM</button>
-    </div>
-
-    <script>
-        const sceneEl = document.getElementById('myScene');
-        const loaderEl = document.getElementById('loader');
-        const demHolderEl = document.getElementById('demHolder');
-        const myDemTerrainEl = document.getElementById('myDemTerrain');
-        const reticleEl = document.getElementById('reticle');
-        const groundPlaneEl = document.getElementById('groundPlane');
-        const cameraEl = document.getElementById('camera');
-        const cameraRigEl = document.getElementById('cameraRig');
-
-        const uiContainerEl = document.getElementById('ui-container');
-        const statusMessageEl = document.getElementById('status-message');
-        const enterARButton = document.getElementById('enterARButton');
-        const enterVRButton = document.getElementById('enterVRButton');
-        const placeDemButton = document.getElementById('placeDemButton');
-
-        let currentXrSession = null;
-        let demTerrainComponentReady = false;
-        let demPlacedInAR = false;
-
-        function showLoader(message) {
-            loaderEl.textContent = message || "Loading...";
-            loaderEl.style.display = 'block';
-        }
-        function hideLoader() {
-            loaderEl.style.display = 'none';
-        }
-        function updateStatus(message) {
-            statusMessageEl.textContent = message;
-            console.log("Status:", message);
-        }
-
-        function configureSceneForDesktop() {
-            updateStatus("Desktop Mode");
-            sceneEl.setAttribute('background', 'transparent', false);
-            sceneEl.setAttribute('background', 'color', '#222222');
-
-            if (demTerrainComponentReady) {
-                demHolderEl.setAttribute('visible', 'true');
-                demHolderEl.setAttribute('position', '0 0.01 -1.5'); // Centered in front
-                demHolderEl.setAttribute('scale', '1 1 1');
-            }
-            groundPlaneEl.setAttribute('visible', 'true');
-            reticleEl.setAttribute('visible', 'false');
-            cameraRigEl.setAttribute('position', '0 0 0');
-            cameraEl.setAttribute('position', '0 1.6 2'); // Reset camera position
-            cameraEl.setAttribute('look-controls', 'enabled', true);
-            cameraEl.setAttribute('wasd-controls', 'enabled', true);
-            placeDemButton.style.display = 'none';
-            sceneEl.setAttribute('ar-hit-test', 'enabled', false);
-            hideLoader();
-        }
-
-        function configureSceneForAR() {
-            updateStatus("Entering AR Passthrough Mode...");
-            sceneEl.setAttribute('background', 'transparent', true); // Crucial for passthrough
-
-            demHolderEl.setAttribute('visible', 'false'); // Hide until placed
-            demPlacedInAR = false;
-            groundPlaneEl.setAttribute('visible', 'false');
-            reticleEl.setAttribute('visible', 'true'); // Show reticle for placement
-            
-            cameraRigEl.setAttribute('position', '0 0 0'); // AR runtime handles camera rig
-            cameraEl.setAttribute('position', '0 0 0');    // Camera relative to rig
-            cameraEl.setAttribute('look-controls', 'enabled', true); // Usually device orientation
-            cameraEl.setAttribute('wasd-controls', 'enabled', false);
-            
-            sceneEl.setAttribute('ar-hit-test', 'enabled', true);
-            placeDemButton.style.display = 'block';
-            updateStatus("AR Mode: Look for a surface and tap/trigger to place DEM.");
-            hideLoader();
-        }
-
-        function configureSceneForVR() {
-            updateStatus("Entering VR Mode...");
-            sceneEl.setAttribute('background', 'transparent', false);
-            sceneEl.setAttribute('background', 'color', '#111111'); // Darker for VR
-
-            if (demTerrainComponentReady) {
-                demHolderEl.setAttribute('visible', 'true');
-                demHolderEl.setAttribute('position', '0 0.5 -1.5');
-                demHolderEl.setAttribute('scale', '1 1 1');
-            }
-            groundPlaneEl.setAttribute('visible', 'true'); // Ground useful in VR
-            reticleEl.setAttribute('visible', 'false');
-            cameraRigEl.setAttribute('position', '0 0 0');
-            cameraEl.setAttribute('position', '0 1.6 0'); // User height at origin
-            cameraEl.setAttribute('look-controls', 'enabled', true);
-            cameraEl.setAttribute('wasd-controls', 'enabled', false); // Typically use teleport/joystick in VR
-            placeDemButton.style.display = 'none';
-            sceneEl.setAttribute('ar-hit-test', 'enabled', false);
-            hideLoader();
-        }
-
-        async function startXRSession(mode) {
-            if (!navigator.xr) {
-                updateStatus("WebXR not supported by this browser.");
-                return;
-            }
-            if (currentXrSession) {
-                updateStatus("An XR session is already active.");
-                await currentXrSession.end(); // Should trigger exit-vr
-                return;
-            }
-
-            try {
-                showLoader(`Starting ${mode === 'immersive-ar' ? 'AR' : 'VR'} session...`);
-                // Request AR or VR session
-                currentXrSession = await navigator.xr.requestSession(mode, {
-                    optionalFeatures: ['local-floor', 'bounded-floor', 'hit-test', 'dom-overlay', 'anchors'],
-                    domOverlay: { root: uiContainerEl } // Link our UI container
-                });
-                sceneEl.xrSession = currentXrSession; // Important: Tell A-Frame about the session
-
-                currentXrSession.addEventListener('end', () => {
-                    updateStatus("XR session ended.");
-                    sceneEl.xrSession = null;
-                    currentXrSession = null;
-                    demPlacedInAR = false; // Reset AR placement status
-                    configureSceneForDesktop(); // Revert to desktop
-                    checkXRSupport(); // Re-enable buttons
-                });
-
-                // A-Frame's 'enter-vr' event will fire *after* this setup
-                // We let A-Frame handle the mode switching based on session type
-
-            } catch (error) {
-                console.error(`Failed to start ${mode} session:`, error);
-                updateStatus(`Error starting ${mode}: ${error.message}`);
-                currentXrSession = null; // Ensure it's null on failure
-                hideLoader();
-                checkXRSupport(); // Re-enable buttons if session start failed
-            }
-        }
-
-        enterARButton.addEventListener('click', () => startXRSession('immersive-ar'));
-        enterVRButton.addEventListener('click', () => startXRSession('immersive-vr'));
-
-        // A-Frame event for when an XR session actually starts
-        sceneEl.addEventListener('enter-vr', () => {
-            if (sceneEl.is('ar-mode')) {
-                configureSceneForAR();
-            } else {
-                configureSceneForVR();
-            }
-        });
-
-        // A-Frame event for when an XR session ends (alternative to raw session 'end')
-        sceneEl.addEventListener('exit-vr', () => {
-            // This might be redundant if raw session 'end' handles it, but good for safety
-            if (currentXrSession) { // If session was managed by our button
-                 // currentXrSession.end() should have been called or will be.
-            } else { // If A-Frame managed session (e.g. headset button)
-                configureSceneForDesktop();
-            }
-            checkXRSupport(); // Re-enable buttons
-        });
-
-
-        // Handle DEM placement in AR
-        function placeDemInARScene(event) {
-            if (!sceneEl.is('ar-mode') || demPlacedInAR) return;
-
-            // Check if hit-test result is available on the reticle
-            // A-Frame's ar-hit-test component (when targetEl is set) populates this
-            const hitTestComponent = reticleEl.components['ar-hit-test-target'];
-            let hitMatrix = null;
-
-            if (hitTestComponent && hitTestComponent.hitTestResult) {
-                 hitMatrix = new THREE.Matrix4().fromArray(hitTestComponent.hitTestResult.matrix);
-            } else if (event && event.detail && event.detail.intersection) {
-                // Fallback if ar-hit-test is directly on scene and event has intersection
-                // This might require event.detail.intersection.object.matrixWorld and point
-                // For simplicity, we rely more on the reticle being updated by ar-hit-test
-                 console.warn("Using scene intersection, might be less precise for placement.");
-                 // This part needs careful handling of intersection data
-            }
-
-
-            if (hitMatrix) {
-                const position = new THREE.Vector3();
-                const quaternion = new THREE.Quaternion();
-                const scale = new THREE.Vector3(); // Not usually needed from hitMatrix for placement
-
-                hitMatrix.decompose(position, quaternion, scale);
-
-                demHolderEl.object3D.position.copy(position);
-                // demHolderEl.object3D.quaternion.copy(quaternion); // Optional: align with surface normal
-
-                demHolderEl.setAttribute('visible', 'true');
-                demHolderEl.setAttribute('scale', '0.5 0.5 0.5'); // Adjust scale for AR
-                
-                updateStatus("DEM Placed in AR!");
-                reticleEl.setAttribute('visible', 'false'); // Hide reticle after placement
-                placeDemButton.style.display = 'none'; // Hide place button
-                demPlacedInAR = true;
-                // sceneEl.setAttribute('ar-hit-test', 'enabled', false); // Optional: disable further hit-testing
-            } else {
-                updateStatus("No surface found at tap location. Try again.");
-            }
-
-            if (!reticleEl.object3D.visible) {
-                updateStatus("Reticle not visible. Wait for surface detection.");
-                return;
-            }
-        }
-        sceneEl.addEventListener('select', placeDemInARScene); // 'select' for tap/trigger
-
-        // Listen for when the DEM terrain component has processed the image
-        myDemTerrainEl.addEventListener('dem-terrain-loaded', () => {
-            demTerrainComponentReady = true;
-            console.log("DEM Terrain data processed and mesh is ready.");
-            hideLoader();
-            // If not in an XR session yet, ensure desktop view is correctly set up
-            if (!currentXrSession && !sceneEl.is('vr-mode') && !sceneEl.is('ar-mode')) {
-                configureSceneForDesktop();
-            }
-        });
-
-        // Initial XR support check and UI setup
-        function checkXRSupport() {
-            if (navigator.xr) {
-                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                    enterARButton.disabled = !supported;
-                    if (!supported) updateStatus("AR Passthrough not supported.");
-                    else if (!currentXrSession) updateStatus("Ready. Select AR or VR.");
-                });
-                navigator.xr.isSessionSupported('immersive-vr').then((supported) => {
-                    enterVRButton.disabled = !supported;
-                    if (!supported) updateStatus(statusMessageEl.textContent + " VR not supported.");
-                    else if (!currentXrSession && enterARButton.disabled) updateStatus("Ready for VR."); // If AR also not supported
-                });
-                if (enterARButton.disabled && enterVRButton.disabled && !currentXrSession) {
-                     updateStatus("WebXR not fully supported. Desktop view only.");
-                }
-            } else {
-                enterARButton.disabled = true;
-                enterVRButton.disabled = true;
-                updateStatus("WebXR not supported by this browser. Desktop view only.");
-            }
-        }
-
-        // Initial setup
-        window.addEventListener('DOMContentLoaded', () => {
-            showLoader("Initializing DEM Viewer...");
-            checkXRSupport();
-            // Configure for desktop initially, may be overridden if DEM loads later
-            // or if an XR session auto-starts (e.g. from headset).
-            if (!currentXrSession) { // Check ensures we don't override an active session
-                configureSceneForDesktop();
-            }
-        });
-    </script>
 </body>
 </html>
