@@ -9,6 +9,8 @@
     <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
     <!-- Our Custom DEM Terrain Component -->
     <script src="dem-terrain-component.js"></script>
+    <!-- orbit-controls -->
+    <script src="https://unpkg.com/aframe-orbit-controls@1.0.0/dist/aframe-orbit-controls.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -69,7 +71,7 @@
     <a-scene
         id="myScene"
         renderer="colorManagement: true; physicallyCorrectLights: true;"
-        background="color: #222222; transparent: false" <!-- Dark BG for desktop/VR, AR will make it transparent -->
+        background="color: #222222" <!-- Dark BG for desktop/VR, AR will make it transparent -->
         webxr="
             optionalFeatures: dom-overlay, hit-test, local-floor, bounded-floor, anchors, hand-tracking;
             overlayElement: #ui-container;"
@@ -90,6 +92,7 @@
             <a-camera id="camera"
                 position="0 1.6 2" <!-- Initial good desktop/VR viewing position -->
                 look-controls="enabled: true"
+                orbit-controls="target: 0 0 0; enableDamping: true;"
                 wasd-controls="enabled: true; acceleration: 30">
                 <a-entity id="reticle"
                     geometry="primitive: ring; radiusInner: 0.015; radiusOuter: 0.02;"
@@ -334,6 +337,11 @@
                 // sceneEl.setAttribute('ar-hit-test', 'enabled', false); // Optional: disable further hit-testing
             } else {
                 updateStatus("No surface found at tap location. Try again.");
+            }
+
+            if (!reticleEl.object3D.visible) {
+                updateStatus("Reticle not visible. Wait for surface detection.");
+                return;
             }
         }
         sceneEl.addEventListener('select', placeDemInARScene); // 'select' for tap/trigger
