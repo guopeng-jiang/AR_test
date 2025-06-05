@@ -51,30 +51,28 @@
 
             <!-- Right hand controller - For zoom AND sampling -->
             <a-entity id="right-controller"
-                    oculus-touch-controls="hand: right; model: true;"
-                    vive-controls="hand: right; model: true;"
-                    windows-motion-controls="hand: right; model: true"
-                    generic-tracked-controller="hand: right"
-                    vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; zoomSpeed: 0.1; minScale: 0.05; maxScale: 2.0;"
-                    <!-- Raycaster for sampling. Intersects with '.collidable' objects -->
-                    <!-- REMOVE showLine: true from here if you add the explicit line below -->
-                    raycaster="objects: .collidable; far: 50; /* showLine: true; */"
-                    vr-value-sampler="demTerrainEl: #dem-display; displayPanelEl: #sampler-display-panel"
-                    visible="true">
-
-                <!-- Explicit Raycaster Line -->
-                <a-entity class="raycaster-line" line="color: yellow; opacity: 0.7; start: 0 0 0; end: 0 0 -1" visible="false"></a-entity>
+                     oculus-touch-controls="hand: right; model: true;"
+                     vive-controls="hand: right; model: true;"
+                     windows-motion-controls="hand: right; model: true"
+                     generic-tracked-controller="hand: right"
+                     vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; zoomSpeed: 0.1; minScale: 0.05; maxScale: 2.0;"
+                     <!-- Raycaster for sampling. Intersects with '.collidable' objects (our DEM) -->
+                     raycaster="objects: .collidable; far: 50; showLine: true; lineColor: yellow; lineOpacity: 0.7"
+                     <!-- Value sampler component -->
+                     vr-value-sampler="demTerrainEl: #dem-display; displayPanelEl: #sampler-display-panel"
+                     visible="true">
 
                 <!-- Sampler Display Panel - Child of the controller -->
+                <!-- This text panel will show the sampled value. -->
                 <a-entity id="sampler-display-panel"
-                        geometry="primitive: plane; width: 0.4; height: 0.25"
-                        material="color: #222222; opacity: 0.9"
-                        text="value: Point at DEM\n& hold trigger;
+                          geometry="primitive: plane; width: 0.4; height: 0.25"
+                          material="color: #222222; opacity: 0.9"
+                          text="value: Point at DEM\n& hold trigger;
                                 color: #FFFFFF; align: left; wrapCount: 25;
                                 width: 0.38; xOffset: 0.01; zOffset: 0.01"
-                        position="0 0.05 -0.2"
-                        rotation="-30 0 0"
-                        visible="false">
+                          position="0 0.05 -0.2"  <!-- Position it slightly in front and above the controller's grip -->
+                          rotation="-30 0 0"     <!-- Tilt it for better readability -->
+                          visible="false">       <!-- Initially hidden -->
                 </a-entity>
             </a-entity>
         </a-entity>
