@@ -343,60 +343,77 @@ AFRAME.registerComponent('dem-terrain', {
 
 
 // =====================================
-// VR Value Sampler Component
+// VR Value Sampler Component (REVISED)
 // =====================================
 AFRAME.registerComponent('vr-value-sampler', {
     schema: {
-        demTerrainEl: { type: 'selector', default: '#dem-display' }, // Selector for the DEM terrain entity
-        triggerEvent: { type: 'string', default: 'triggerdown' },   // Event to start sampling
-        releaseEvent: { type: 'string', default: 'triggerup' },     // Event to stop sampling
-        displayPanelEl: { type: 'selector', default: '#sampler-display-panel' } // Selector for the text display
+        demTerrainEl: { type: 'selector', default: '#dem-display' },
+        triggerEvent: { type: 'string', default: 'triggerdown' },
+        releaseEvent: { type: 'string', default: 'triggerup' },
+        displayPanelEl: { type: 'selector', default: '#sampler-display-panel' }
     },
 
     init: function () {
         this.demTerrainComponent = null;
-        this.displayPanelComponent = null;
+        this.demTerrainEntity = null; // Store the entity itself for raycaster
+        this.displayPanelEntity = null; // Store the entity for visibility toggling
+        this.displayPanelTextComponent = null; // Store the text component for updates
+
         this.isSampling = false;
         this.raycasterEl = this.el; // Assuming raycaster is on this controller entity
+        this.raycasterLineEl = this.el.querySelector('.raycaster-line'); // For explicit line
 
-        // Get DEM terrain component
+        console.log("vr-value-sampler: Initializing for controller:", this.el.id);
+
+        // Get DEM terrain entity and component
         const demEl = this.data.demTerrainEl;
         if (demEl) {
-            if (demEl.hasLoaded) {
+            this.demTerrainEntity = demEl; // Store entity for raycaster
+            const setupDemTerrain = () => {
                 this.demTerrainComponent = demEl.components['dem-terrain'];
-                 if (!this.demTerrainComponent) console.error("vr-value-sampler: dem-terrain component not found on", demEl.id);
+                if (!this.demTerrainComponent) {
+                    console.error("vr-value-sampler: dem-terrain component NOT FOUND on", demEl.id);
+                } else {
+                    console.log("vr-value-sampler: dem-terrain component found on", demEl.id);
+                    if (!this.demTerrainComponent.isLoaded) {
+                        console.log("vr-value-sampler: Waiting for 'dem-loaded' event from", demEl.id);
+                        demEl.addEventListener('dem-loaded', () => {
+                            console.log("vr-value-sampler: 'dem-loaded' event received from", demEl.id);
+                        }, { once: true });
+                    } else {
+                         console.log("vr-value-sampler: DEM terrain already loaded.");
+                    }
+                }
+            };
+            if (demEl.hasLoaded) {
+                setupDemTerrain();
             } else {
-                demEl.addEventListener('loaded', () => {
-                    this.demTerrainComponent = demEl.components['dem-terrain'];
-                    if (!this.demTerrainComponent) console.error("vr-value-sampler: dem-terrain component not found on", demEl.id, "after load.");
-                }, {once: true});
+                demEl.addEventListener('loaded', setupDemTerrain, { once: true });
             }
-             // Also listen for the custom 'dem-loaded' event from dem-terrain
-            demEl.addEventListener('dem-loaded', () => {
-                if(!this.demTerrainComponent) this.demTerrainComponent = demEl.components['dem-terrain'];
-                // console.log("vr-value-sampler: DEM data is confirmed loaded by dem-terrain.");
-            }, {once: true});
         } else {
-            console.error("vr-value-sampler: demTerrainEl not found.");
+            console.error("vr-value-sampler: demTerrainEl selector '" + this.data.demTerrainEl + "' did not find an entity.");
         }
 
-
-        // Get Display Panel component
+        // Get Display Panel entity and text component
         const panelEl = this.data.displayPanelEl;
         if (panelEl) {
+            this.displayPanelEntity = panelEl; // Store entity for visibility
+            const setupDisplayPanel = () => {
+                this.displayPanelTextComponent = panelEl.components.text;
+                if (!this.displayPanelTextComponent) {
+                    console.error("vr-value-sampler: text component NOT FOUND on display panel", panelEl.id);
+                } else {
+                    console.log("vr-value-sampler: Display panel text component found.");
+                    panelEl.setAttribute('visible', false); // Hide initially
+                }
+            };
             if (panelEl.hasLoaded) {
-                this.displayPanelComponent = panelEl.components.text;
-                if (!this.displayPanelComponent) console.error("vr-value-sampler: text component not found on display panel", panelEl.id);
-                else panelEl.setAttribute('visible', false); // Hide initially
+                setupDisplayPanel();
             } else {
-                panelEl.addEventListener('loaded', () => {
-                    this.displayPanelComponent = panelEl.components.text;
-                    if (!this.displayPanelComponent) console.error("vr-value-sampler: text component not found on display panel", panelEl.id, "after load.");
-                    else panelEl.setAttribute('visible', false); // Hide initially
-                }, {once: true});
+                panelEl.addEventListener('loaded', setupDisplayPanel, { once: true });
             }
         } else {
-            console.error("vr-value-sampler: displayPanelEl not found.");
+            console.error("vr-value-sampler: displayPanelEl selector '" + this.data.displayPanelEl + "' did not find an entity.");
         }
 
         this.onTriggerDown = this.onTriggerDown.bind(this);
@@ -405,83 +422,149 @@ AFRAME.registerComponent('vr-value-sampler', {
         this.el.addEventListener(this.data.triggerEvent, this.onTriggerDown);
         this.el.addEventListener(this.data.releaseEvent, this.onTriggerUp);
 
-        // Ensure raycaster is configured to intersect 'collidable'
+        // Ensure raycaster is configured correctly
         if (!this.raycasterEl.hasAttribute('raycaster')) {
-            console.warn("vr-value-sampler: Controller element does not have a raycaster component. Adding a default one.");
-            this.raycasterEl.setAttribute('raycaster', 'objects: .collidable; far: 50; showLine: true');
+            console.warn("vr-value-sampler: Controller element does not have a raycaster. Adding default: objects: .collidable; far: 50;");
+            this.raycasterEl.setAttribute('raycaster', 'objects: .collidable; far: 50;');
         } else {
-            const currentRaycasterObjects = this.raycasterEl.getAttribute('raycaster').objects;
-            if (currentRaycasterObjects && !currentRaycasterObjects.includes('.collidable')) {
-                 this.raycasterEl.setAttribute('raycaster', 'objects', currentRaycasterObjects + ', .collidable');
-            } else if (!currentRaycasterObjects) {
-                 this.raycasterEl.setAttribute('raycaster', 'objects', '.collidable');
+            let rcAttr = this.raycasterEl.getAttribute('raycaster');
+            if (!rcAttr.objects || !rcAttr.objects.includes('.collidable')) {
+                const newObjects = rcAttr.objects ? rcAttr.objects + ', .collidable' : '.collidable';
+                this.raycasterEl.setAttribute('raycaster', 'objects', newObjects);
+                console.log("vr-value-sampler: Updated raycaster 'objects' to include '.collidable'");
             }
         }
-        // console.log("vr-value-sampler initialized for controller:", this.el.id);
+        if (this.raycasterLineEl) {
+            console.log("vr-value-sampler: Explicit raycaster line found.");
+            this.raycasterLineEl.setAttribute('visible', true); // Show line when controller is active
+        } else {
+            console.warn("vr-value-sampler: Explicit .raycaster-line child NOT found. Visual line might not appear as configured.");
+        }
     },
 
-    onTriggerDown: function () {
+    onTriggerDown: function (evt) {
+        console.log("vr-value-sampler: Trigger DOWN detected on " + this.el.id);
         this.isSampling = true;
-        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', true);
-        // console.log("Sampling started");
+        if (this.displayPanelEntity) {
+            this.displayPanelEntity.setAttribute('visible', true);
+            console.log("vr-value-sampler: Display panel visibility set to true.");
+            // Update text immediately on trigger down if not intersecting
+             if (this.displayPanelTextComponent) {
+                this.displayPanelTextComponent.el.setAttribute('text', 'value', 'Sampling...');
+            }
+        } else {
+            console.warn("vr-value-sampler: No display panel entity to make visible on trigger down.");
+        }
     },
 
-    onTriggerUp: function () {
+    onTriggerUp: function (evt) {
+        console.log("vr-value-sampler: Trigger UP detected on " + this.el.id);
         this.isSampling = false;
-        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', false);
-        // console.log("Sampling stopped");
+        if (this.displayPanelEntity) {
+            this.displayPanelEntity.setAttribute('visible', false);
+            console.log("vr-value-sampler: Display panel visibility set to false.");
+        } else {
+            console.warn("vr-value-sampler: No display panel entity to hide on trigger up.");
+        }
     },
 
     tick: function () {
-        if (!this.isSampling || !this.demTerrainComponent || !this.demTerrainComponent.isLoaded || !this.displayPanelComponent) {
-            if (this.isSampling && this.data.displayPanelEl && this.data.displayPanelEl.getAttribute('visible')) {
-                 // Keep display panel visible but maybe show "Waiting for DEM..."
-                 if (!this.demTerrainComponent || !this.demTerrainComponent.isLoaded) {
-                    this.displayPanelComponent.el.setAttribute('text', 'value', 'DEM loading...');
-                 }
+        const raycasterComponent = this.raycasterEl.components.raycaster;
+        if (!raycasterComponent) return; // Raycaster not ready
+
+        let intersection = null;
+        if (this.demTerrainEntity && this.demTerrainEntity.object3D) { // Ensure entity and its 3D object are ready
+             // Check if demTerrainEntity is actually in the raycaster's list of objects
+            if (raycasterComponent.intersectedEls.includes(this.demTerrainEntity)) {
+                // More direct way to get the specific intersection if you know the target
+                for (let i = 0; i < raycasterComponent.intersections.length; i++) {
+                    if (raycasterComponent.intersections[i].object.el === this.demTerrainEntity) {
+                        intersection = raycasterComponent.intersections[i];
+                        break;
+                    }
+                }
             }
+            // Fallback if the above doesn't work (e.g. older A-Frame or race condition)
+            if (!intersection) {
+                 intersection = raycasterComponent.getIntersection(this.demTerrainEntity);
+            }
+        }
+
+
+        // Update explicit raycaster line
+        if (this.raycasterLineEl) {
+            this.raycasterLineEl.setAttribute('visible', true); // Keep line visible while controller is active
+            let lineEnd;
+            if (intersection) {
+                let localIntersectionPoint = new THREE.Vector3();
+                this.el.object3D.worldToLocal(localIntersectionPoint.copy(intersection.point));
+                lineEnd = localIntersectionPoint;
+            } else {
+                const direction = raycasterComponent.data.direction; // THREE.Vector3
+                const far = raycasterComponent.data.far;
+                // Create a new vector for calculation to avoid modifying the original
+                lineEnd = new THREE.Vector3(direction.x, direction.y, direction.z).multiplyScalar(far);
+            }
+            this.raycasterLineEl.setAttribute('line', 'end', `${lineEnd.x} ${lineEnd.y} ${lineEnd.z}`);
+        }
+
+        if (!this.isSampling) {
+            return; // Not holding trigger, do nothing further with display panel
+        }
+
+        // --- From here, we are sampling (trigger is held) ---
+
+        if (!this.displayPanelEntity || !this.displayPanelTextComponent) {
+            // console.warn("vr-value-sampler: Display panel not ready for update.");
+            return;
+        }
+        // Ensure panel is visible if sampling (might have been missed by onTriggerDown if components weren't ready)
+        if (!this.displayPanelEntity.getAttribute('visible')) {
+            this.displayPanelEntity.setAttribute('visible', true);
+        }
+
+
+        if (!this.demTerrainComponent || !this.demTerrainComponent.isLoaded) {
+            this.displayPanelTextComponent.el.setAttribute('text', 'value', 'DEM loading...');
             return;
         }
 
-        const intersection = this.raycasterEl.components.raycaster.getIntersection(this.data.demTerrainEl);
-
         if (intersection) {
-            const uv = intersection.uv; // This is THREE.Vector2, (0,0) is usually at a corner of the texture.
-                                        // For PlaneGeometry, it's bottom-left.
+            const uv = intersection.uv; // THREE.Vector2
             if (uv) {
-                // DEM image data typically has (0,0) at top-left.
-                // PlaneGeometry UVs have (0,0) at bottom-left.
-                // So, if raycaster UVs match PlaneGeometry UVs, v_image = 1.0 - v_plane.
                 const imageU = uv.x;
-                const imageV = 1.0 - uv.y; // Flip V coordinate
+                const imageV = 1.0 - uv.y; // Flip V for image coords (0,0 at top-left)
 
                 const value = this.demTerrainComponent.getDEMValueAtUV(imageU, imageV);
 
                 if (value !== null) {
                     const worldPoint = intersection.point;
-                    this.displayPanelComponent.el.setAttribute('text', 'value', `Value: ${value}\nPos: ${worldPoint.x.toFixed(2)}, ${worldPoint.y.toFixed(2)}, ${worldPoint.z.toFixed(2)}\nUV: ${imageU.toFixed(3)}, ${imageV.toFixed(3)}`);
-                    // Position the panel near the intersection point or on the controller
-                    // Example: Position on controller, slightly offset
-                    // this.displayPanelComponent.el.setAttribute('position', '0.1 0 -0.1'); // Adjust as needed relative to controller
+                    this.displayPanelTextComponent.el.setAttribute('text', 'value',
+                        `Value: ${value}\nPos: ${worldPoint.x.toFixed(1)}, ${worldPoint.y.toFixed(1)}, ${worldPoint.z.toFixed(1)}\nUV: ${imageU.toFixed(2)}, ${imageV.toFixed(2)}`
+                    );
                 } else {
-                    this.displayPanelComponent.el.setAttribute('text', 'value', 'Out of bounds or\nDEM not ready');
+                    this.displayPanelTextComponent.el.setAttribute('text', 'value', 'Out of DEM bounds\nor data error');
                 }
             } else {
-                 this.displayPanelComponent.el.setAttribute('text', 'value', 'No UV data\nat intersection');
+                this.displayPanelTextComponent.el.setAttribute('text', 'value', 'No UV data\nat intersection');
             }
         } else {
-            this.displayPanelComponent.el.setAttribute('text', 'value', 'Point at DEM\n& hold trigger');
+            this.displayPanelTextComponent.el.setAttribute('text', 'value', 'Point at DEM');
         }
     },
 
     remove: function () {
+        console.log("vr-value-sampler: Removing listeners for " + this.el.id);
         this.el.removeEventListener(this.data.triggerEvent, this.onTriggerDown);
         this.el.removeEventListener(this.data.releaseEvent, this.onTriggerUp);
-        if (this.data.displayPanelEl) this.data.displayPanelEl.setAttribute('visible', false);
+        if (this.displayPanelEntity) {
+            this.displayPanelEntity.setAttribute('visible', false);
+        }
+        if (this.raycasterLineEl) {
+            this.raycasterLineEl.setAttribute('visible', false);
+        }
     }
 });
-
-// ... (Make sure vr-dem-zoom and ar-scale-adjuster are here if you had them previously)
 
 // Optional: Stars component (if you want to use it from index.html)
 AFRAME.registerComponent('stars', {
