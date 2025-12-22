@@ -5,8 +5,7 @@
     <title>AR/VR DEM Viewer</title>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
     <script src="js/dem-components.js"></script>
-    <!-- Optional: For more advanced movement controls if wasd-controls aren't enough -->
-    <!-- <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script> -->
+    <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
     <style>
         body { margin: 0; overflow: hidden; }
         #loader {
@@ -31,53 +30,52 @@
              background="color: #111122"
              antialias="true"
              renderer="colorManagement: true;"
-             stats="false"
-             debug="false"
-             ui-wrapper="false">
+             stats="false">
+
+        <!-- Stars -->
+        <a-entity stars="count: 2000; radius: 200; color: #FFFFFF"></a-entity>
 
         <a-entity id="ar-scale-adjuster-wrapper"
                   ar-scale-adjuster="arScale: 0.05; vrScale: 0.5; arYOffset: 0; vrYOffset: 0; defaultPosVR: 0 -1 -3; defaultPosAR: 0 -0.5 -1.5">
+            
+            <!-- DEM Terrain Display -->
+            <!-- 
+                 lake-ecosystem:
+                 - fishCount: Number of fish
+                 - plantCount: Number of plants on the bottom
+                 - waterLevel: MUST match the level in water-helper (so fish stay under)
+            -->
             <a-entity id="dem-display"
                       dem-terrain="demImagePath: grayscale_raster.png;
-                                   planeSize: 50;
-                                   heightScale: 5;
+                                   maxSize: 50;
+                                   heightScale: 3;
                                    segments: 200;"
+                      water-helper="level: 2.5; color: #006994; opacity: 0.6; speed: 2.0;"
+                      lake-ecosystem="fishCount: 50; plantCount: 300; waterLevel: 1.5; fishColor: #ffaa00; plantColor: #1a4d1a;"
                       position="0 0 0">
             </a-entity>
+
         </a-entity>
 
         <!-- Camera Rig -->
-        <!-- wasd-controls on the rig allows thumbstick movement if controllers are configured -->
         <a-entity id="rig" position="0 1.6 0"
-                  wasd-controls="enabled: true; fly: true; acceleration: 35;">
-            <!-- Note: For wasd-controls to be driven by VR controller,
-                 the controller component (e.g., oculus-touch-controls)
-                 often needs `wasd-controls-enabled: true` (see left controller below) -->
-            <a-camera look-controls="enabled: true; magicWindowTrackingEnabled: false">
-            </a-camera>
+                  movement-controls="speed: 0.5; fly: true;">
+            
+            <a-camera look-controls="enabled: true; magicWindowTrackingEnabled: false" position="0 0 0"></a-camera>
 
-            <!-- Left hand controller - Typically for movement -->
             <a-entity id="left-controller"
-                     oculus-touch-controls="hand: left; model: true; wasd-controls-enabled: true"
-                     vive-controls="hand: left; model: true; wasd-controls-enabled: true"
-                     windows-motion-controls="hand: left; model: true" /* WMR might not directly drive wasd-controls */
-                     generic-tracked-controller="hand: left" /* Generic fallback */
-                     visible="true">
-                     <!-- For more advanced movement, you might use aframe-extras movement-controls on the rig
-                          and point it to this controller:
-                          Example on rig: movement-controls="controller: #left-controller; fly: true;"
-                          Then remove wasd-controls from rig and wasd-controls-enabled from controller.
-                     -->
+                      oculus-touch-controls="hand: left; model: true;"
+                      vive-controls="hand: left; model: true;"
+                      windows-motion-controls="hand: left; model: true;"
+                      visible="true">
             </a-entity>
 
-            <!-- Right hand controller - For zoom -->
             <a-entity id="right-controller"
-                     oculus-touch-controls="hand: right; model: true;"
-                     vive-controls="hand: right; model: true;"
-                     windows-motion-controls="hand: right; model: true"
-                     generic-tracked-controller="hand: right"
-                     vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; zoomSpeed: 0.1; minScale: 0.05; maxScale: 2.0;"
-                     visible="true">
+                      oculus-touch-controls="hand: right; model: true;"
+                      vive-controls="hand: right; model: true;"
+                      windows-motion-controls="hand: right; model: true;"
+                      vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; speed: 1.5;"
+                      visible="true">
             </a-entity>
         </a-entity>
 

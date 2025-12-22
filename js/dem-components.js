@@ -1,23 +1,19 @@
 /* global AFRAME, THREE */
 
 // =====================================
-// AR/VR Scale Adjuster (Copied from your components.txt)
-// Ensure this is available if you use it.
+// AR/VR Scale Adjuster
 // =====================================
 AFRAME.registerComponent('ar-scale-adjuster', {
     schema: {
-        arScale: { type: 'number', default: 0.5 },
-        vrScale: { type: 'number', default: 1.0 },
-        arYOffset: { type: 'number', default: 1.0 },
-        vrYOffset: { type: 'number', default: 0.0 },
-        defaultPosVR: { type: 'vec3', default: { x: 0, y: 0, z: -5 } },
-        defaultPosAR: { type: 'vec3', default: { x: 0, y: 0, z: -3 } }
+        arScale: { type: 'number', default: 0.05 },
+        vrScale: { type: 'number', default: 0.5 },
+        arYOffset: { type: 'number', default: 0 },
+        vrYOffset: { type: 'number', default: 0 },
+        defaultPosVR: { type: 'vec3', default: { x: 0, y: -1, z: -3 } },
+        defaultPosAR: { type: 'vec3', default: { x: 0, y: -0.5, z: -1.5 } }
     },
     init: function() {
         this.sceneEl = this.el.sceneEl;
-        this.currentScale = this.data.vrScale; // Initialize with VR scale
-        this.checkDelayTimer = null;
-
         this.defaultPositionVR = AFRAME.utils.clone(this.data.defaultPosVR);
         this.defaultPositionAR = AFRAME.utils.clone(this.data.defaultPosAR);
         
@@ -25,14 +21,14 @@ AFRAME.registerComponent('ar-scale-adjuster', {
         this.onExitXR = this.onExitXR.bind(this);
         this.checkXRMode = this.checkXRMode.bind(this);
 
-        this.sceneEl.addEventListener('enter-vr', this.onEnterXR); // A-Frame 1.6.0 uses 'enter-vr'
-        this.sceneEl.addEventListener('exit-vr', this.onExitXR);   // and 'exit-vr' for generic XR sessions
+        this.sceneEl.addEventListener('enter-vr', this.onEnterXR);
+        this.sceneEl.addEventListener('exit-vr', this.onExitXR);
 
         this.applyTransform(this.data.vrScale, this.defaultPositionVR.y + this.data.vrYOffset, false);
         this.checkURLParameters();
     },
     onEnterXR: function() {
-        this.checkDelayTimer = setTimeout(this.checkXRMode, 500);
+        setTimeout(this.checkXRMode, 500);
     },
     checkXRMode: function() {
         const renderer = this.sceneEl.renderer;
@@ -44,103 +40,57 @@ AFRAME.registerComponent('ar-scale-adjuster', {
                 const isAR = this.detectARMode(session);
                 if (isAR) {
                     document.body.classList.add('ar-mode');
-                    document.body.classList.remove('vr-mode');
                     this.applyTransform(this.data.arScale, this.defaultPositionAR.y + this.data.arYOffset, true);
                 } else {
                     document.body.classList.add('vr-mode');
-                    document.body.classList.remove('ar-mode');
                     this.applyTransform(this.data.vrScale, this.defaultPositionVR.y + this.data.vrYOffset, false);
                 }
-            } else { // Fallback if session details are not immediately available
-                this.applyTransform(this.data.vrScale, this.defaultPositionVR.y + this.data.vrYOffset, false);
             }
-        } else { // Not presenting
-            this.applyTransform(this.data.vrScale, this.defaultPositionVR.y + this.data.vrYOffset, false);
         }
     },
     detectARMode: function(session) {
-        // A-Frame 1.5.0+ might use session.environmentBlendMode
-        if (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend') {
-            return true;
-        }
-        // Older or other WebXR implementations might need feature detection
-        if (session.enabledFeatures) {
-            const arFeatures = ['hit-test', 'plane-detection', 'anchors', 'camera-access', 'dom-overlay'];
-            if (arFeatures.some(feature => session.enabledFeatures.includes(feature))) {
-                 // Check if it's not 'immersive-vr' which might also have some of these features
-                if (session.mode !== 'immersive-vr') return true;
-            }
-        }
-        // Quest Passthrough specific hack (if applicable and you know it's Quest)
-        // This is less reliable general purpose.
-        // For Quest, 'local-floor' or 'bounded-floor' reference spaces are common in VR,
-        // while AR might use 'viewer' or 'unbounded'.
-        // The environmentBlendMode is the most reliable.
-        return false;
-    },
-    isMetaQuestPassthrough: function() {
-        // This function is highly specific and might not be reliable.
-        // Prefer detectARMode using session properties.
-        const isQuest = navigator.userAgent.includes('Quest') || navigator.userAgent.includes('OculusBrowser');
-        if (!isQuest) return false;
-        // Passthrough might be indicated by specific session features or modes.
-        // This example is a placeholder for more robust detection if needed.
-        return window.location.search.includes('passthrough=true');
+        return (session.environmentBlendMode === 'additive' || session.environmentBlendMode === 'alpha-blend');
     },
     checkURLParameters: function() {
         const urlParams = new URLSearchParams(window.location.search);
         if (urlParams.get('ar') === 'true' || urlParams.get('passthrough') === 'true') {
             this.applyTransform(this.data.arScale, this.defaultPositionAR.y + this.data.arYOffset, true);
-            document.body.classList.add('ar-mode', 'url-forced-ar');
+            document.body.classList.add('ar-mode');
         }
     },
     onExitXR: function() {
-        if (this.checkDelayTimer) {
-            clearTimeout(this.checkDelayTimer);
-            this.checkDelayTimer = null;
-        }
         this.applyTransform(this.data.vrScale, this.defaultPositionVR.y + this.data.vrYOffset, false);
-        document.body.classList.remove('ar-mode', 'vr-mode', 'url-forced-ar');
-        // Ensure scene is visible and at normal scale
-        if (this.sceneEl && this.sceneEl.object3D) {
-            this.sceneEl.object3D.visible = true;
-        }
+        document.body.classList.remove('ar-mode', 'vr-mode');
+        if (this.sceneEl.object3D) this.sceneEl.object3D.visible = true;
     },
     applyTransform: function(scale, yPos, isAR) {
         const basePosition = isAR ? this.defaultPositionAR : this.defaultPositionVR;
         this.el.setAttribute('scale', `${scale} ${scale} ${scale}`);
         this.el.setAttribute('position', { x: basePosition.x, y: yPos, z: basePosition.z });
-
-        // Log transform application for debugging
-        // console.log(`Applied transform: Mode=${isAR ? 'AR' : 'VR'}, Scale=${scale}, Position=`, this.el.getAttribute('position'));
     },
     remove: function() {
-        if (this.checkDelayTimer) clearTimeout(this.checkDelayTimer);
         this.sceneEl.removeEventListener('enter-vr', this.onEnterXR);
         this.sceneEl.removeEventListener('exit-vr', this.onExitXR);
-        document.body.classList.remove('ar-mode', 'vr-mode', 'url-forced-ar');
     }
 });
 
-
 // =====================================
-// DEM Terrain Component
+// DEM Terrain Component (With Cutout)
 // =====================================
 AFRAME.registerComponent('dem-terrain', {
     schema: {
         demImagePath: { type: 'string', default: 'grayscale_raster.png' },
-        planeSize: { type: 'number', default: 100 },
+        maxSize: { type: 'number', default: 50 }, 
         heightScale: { type: 'number', default: 10 },
-        segments: { type: 'number', default: 255 },
-        textureRepeat: { type: 'vec2', default: {x: 1, y: 1} }, // For texture tiling
-        color: {type: 'color', default: '#787878'}, // Default terrain color if no texture
-        useImageAsTexture: {type: 'boolean', default: true} // Use DEM image also for color
+        segments: { type: 'number', default: 199 },
+        textureRepeat: { type: 'vec2', default: {x: 1, y: 1} },
+        color: {type: 'color', default: '#787878'},
+        useImageAsTexture: {type: 'boolean', default: true}
     },
 
     init: function () {
         this.loaderDiv = document.getElementById('loader');
         if (this.loaderDiv) this.loaderDiv.style.display = 'block';
-
         this.loadDEM();
     },
 
@@ -148,67 +98,58 @@ AFRAME.registerComponent('dem-terrain', {
         const { demImagePath } = this.data;
         const imgLoader = new THREE.ImageLoader();
 
-        // Handle CORS if the image is on a different domain
-        // imgLoader.setCrossOrigin('anonymous'); // Uncomment if needed
-
         imgLoader.load(demImagePath,
             (image) => {
                 const imgWidth = image.width;
                 const imgHeight = image.height;
-
                 const canvas = document.createElement('canvas');
                 canvas.width = imgWidth;
                 canvas.height = imgHeight;
                 const context = canvas.getContext('2d');
-                if (!context) {
-                    console.error("Failed to get 2D context from canvas!");
-                    if (this.loaderDiv) this.loaderDiv.textContent = 'Error: Canvas 2D context failed.';
-                    return;
-                }
+                
                 context.drawImage(image, 0, 0);
 
-                let imageData;
                 try {
-                    imageData = context.getImageData(0, 0, imgWidth, imgHeight);
+                    const imageData = context.getImageData(0, 0, imgWidth, imgHeight);
+                    this.createTerrainMesh(imageData.data, imgWidth, imgHeight);
+                    if (this.loaderDiv) this.loaderDiv.style.display = 'none';
                 } catch (e) {
-                    console.error("Error getting imageData (potential CORS issue):", e);
-                    if (this.loaderDiv) this.loaderDiv.textContent = 'Error getting image data. Check console for CORS/security issues if loading from file:// or cross-origin.';
-                    // For file://, try running a local web server.
-                    return;
+                    console.error("Canvas Security Error:", e);
+                    if (this.loaderDiv) this.loaderDiv.textContent = 'Error: CORS/Security. Run via local server.';
                 }
-                const data = imageData.data;
-                this.createTerrainMesh(data, imgWidth, imgHeight);
-                if (this.loaderDiv) this.loaderDiv.style.display = 'none';
             },
-            undefined, // onProgress callback (optional)
+            undefined,
             (error) => {
-                console.error('An error occurred loading the DEM image:', error);
-                if (this.loaderDiv) {
-                    if (error.target && error.target.status === 404) {
-                         this.loaderDiv.textContent = `Error 404: Image not found at ${demImagePath}. Check path.`;
-                    } else if (error.message && error.message.includes('Access-Control-Allow-Origin')) {
-                        this.loaderDiv.textContent = `CORS Error: Cannot load ${demImagePath}. Serve files from a web server or check CORS headers.`;
-                    }
-                     else {
-                        this.loaderDiv.textContent = 'Error loading DEM. Check console.';
-                    }
-                }
+                console.error('Error loading DEM image:', error);
+                if (this.loaderDiv) this.loaderDiv.textContent = 'Error loading image. See console.';
             }
         );
     },
 
     createTerrainMesh: function (demData, demWidth, demHeight) {
-        const { planeSize, heightScale, segments, textureRepeat, color, useImageAsTexture, demImagePath } = this.data;
+        const { maxSize, heightScale, segments, textureRepeat, color, useImageAsTexture, demImagePath } = this.data;
 
-        const geometry = new THREE.PlaneGeometry(planeSize, planeSize, segments, segments);
+        // Calculate Aspect Ratio
+        const ratio = demWidth / demHeight;
+        let meshWidth, meshHeight;
+
+        if (ratio >= 1) {
+            meshWidth = maxSize;
+            meshHeight = maxSize / ratio;
+        } else {
+            meshHeight = maxSize;
+            meshWidth = maxSize * ratio;
+        }
+
+        const geometry = new THREE.PlaneGeometry(meshWidth, meshHeight, segments, segments);
         const positions = geometry.attributes.position;
 
         for (let i = 0; i < positions.count; i++) {
-            const x = positions.getX(i); // Plane X: -planeSize/2 to +planeSize/2
-            const y = positions.getY(i); // Plane Y: -planeSize/2 to +planeSize/2 (before rotation)
+            const x = positions.getX(i); 
+            const y = positions.getY(i); 
 
-            let u = (x / planeSize) + 0.5;
-            let v = 1.0 - ((y / planeSize) + 0.5); // Invert V for image coords
+            let u = (x / meshWidth) + 0.5;
+            let v = 1.0 - ((y / meshHeight) + 0.5); 
 
             u = Math.max(0, Math.min(1, u));
             v = Math.max(0, Math.min(1, v));
@@ -217,57 +158,157 @@ AFRAME.registerComponent('dem-terrain', {
             const demY = Math.floor(v * (demHeight - 1));
 
             const pixelIndex = (demY * demWidth + demX) * 4;
-            const grayscaleValue = demData[pixelIndex] / 255; // Assuming R is intensity
+            const grayscaleValue = demData[pixelIndex] / 255; 
 
             positions.setZ(i, grayscaleValue * heightScale);
         }
         geometry.computeVertexNormals();
 
-        let material;
+        // Texture Loading for both Color and Transparency (Alpha)
+        const textureLoader = new THREE.TextureLoader();
+        let demTexture;
+        
+        // We load the texture regardless, as we need it for the Alpha Map
+        demTexture = textureLoader.load(demImagePath, (tex) => {
+            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(textureRepeat.x, textureRepeat.y);
+        });
+
+        const materialConfig = {
+            side: THREE.DoubleSide,
+            // Key to making background invisible:
+            alphaMap: demTexture, 
+            alphaTest: 0.1,       // Discard anything darker than 10% grey
+            transparent: false,   // Keep the rest solid (don't make the mountain ghostly)
+            roughness: 1.0,
+            metalness: 0.0
+        };
+
         if (useImageAsTexture) {
-            const textureLoader = new THREE.TextureLoader();
-            // textureLoader.setCrossOrigin('anonymous'); // If image for texture is also cross-origin
-            const demTexture = textureLoader.load(demImagePath, (tex) => {
-                tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-                tex.repeat.set(textureRepeat.x, textureRepeat.y);
-                tex.needsUpdate = true;
-                // A-Frame's renderer handles color space if 'colorManagement: true' is on <a-scene>
-                // tex.colorSpace = THREE.SRGBColorSpace; (No longer manually set this way in recent THREE with A-Frame)
-            });
-            material = new THREE.MeshStandardMaterial({
-                map: demTexture,
-                roughness: 0.9,
-                metalness: 0.1,
-                side: THREE.FrontSide // Typically FrontSide is enough unless you see through it
-            });
+            materialConfig.map = demTexture;
         } else {
-            material = new THREE.MeshStandardMaterial({
-                color: color,
-                roughness: 0.8,
-                metalness: 0.2,
-                side: THREE.FrontSide
-            });
+            materialConfig.color = color;
         }
 
+        const material = new THREE.MeshStandardMaterial(materialConfig);
         const terrainMesh = new THREE.Mesh(geometry, material);
-        terrainMesh.rotation.x = -Math.PI / 2; // Rotate plane to be horizontal (XZ plane)
+        terrainMesh.rotation.x = -Math.PI / 2;
+        
+        // Shadow support
+        terrainMesh.castShadow = true;
+        terrainMesh.receiveShadow = true;
 
-        // For A-Frame, you set shadows on the entity, not directly on the mesh material in the same way
-        // The entity will pick up shadow system settings from A-Frame if configured.
-        // this.el.setAttribute('shadow', 'cast: true; receive: true'); // If you want shadows
-
+        this.el.meshWidth = meshWidth;
+        this.el.meshHeight = meshHeight;
+        
         this.el.setObject3D('dem-mesh', terrainMesh);
-        console.log("DEM Terrain mesh added to A-Frame entity.");
+        this.el.emit('terrain-loaded', { width: meshWidth, height: meshHeight });
     },
-
     remove: function () {
-        // Clean up the mesh if the component is removed
         this.el.removeObject3D('dem-mesh');
-        if (this.loaderDiv) this.loaderDiv.style.display = 'none';
     }
 });
 
-// Optional: Stars component (if you want to use it from index.html)
+// =====================================
+// Water / Ocean Component (With Masking)
+// =====================================
+AFRAME.registerComponent('water-helper', {
+    schema: {
+        level: { type: 'number', default: 1.5 },
+        color: { type: 'color', default: '#006994' },
+        opacity: { type: 'number', default: 0.75 },
+        speed: { type: 'number', default: 1.0 },
+        maskImagePath: { type: 'string', default: '' } 
+    },
+    init: function() {
+        if (this.el.components['dem-terrain']) {
+            this.el.addEventListener('terrain-loaded', (evt) => {
+                this.createWater(evt.detail.width, evt.detail.height);
+            });
+        } else {
+            this.createWater(50, 50);
+        }
+    },
+    createWater: function(width, height) {
+        const geometry = new THREE.PlaneGeometry(width, height, 64, 64);
+        
+        let maskPath = this.data.maskImagePath;
+        if (!maskPath && this.el.components['dem-terrain']) {
+            maskPath = this.el.components['dem-terrain'].data.demImagePath;
+        }
+
+        const textureLoader = new THREE.TextureLoader();
+        const maskTexture = textureLoader.load(maskPath || 'grayscale_raster.png');
+
+        const vertexShader = `
+            varying vec2 vUv;
+            uniform float uTime;
+            void main() {
+                vUv = uv;
+                vec3 pos = position;
+                float wave1 = sin(pos.x * 2.0 + uTime) * 0.1;
+                float wave2 = cos(pos.y * 1.5 + uTime) * 0.1;
+                pos.z += wave1 + wave2;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+            }
+        `;
+
+        const fragmentShader = `
+            varying vec2 vUv;
+            uniform vec3 uColor;
+            uniform float uOpacity;
+            uniform float uTime;
+            uniform sampler2D tMask;
+
+            void main() {
+                // Sample DEM image to mask out water
+                vec4 maskColor = texture2D(tMask, vUv);
+                
+                // If pixel is black (background), do not draw water
+                if (maskColor.r < 0.1) {
+                    discard;
+                }
+
+                float intensity = 1.0 + 0.2 * sin(vUv.x * 20.0 + uTime) * cos(vUv.y * 20.0 + uTime);
+                gl_FragColor = vec4(uColor * intensity, uOpacity);
+            }
+        `;
+
+        this.uniforms = {
+            uTime: { value: 0 },
+            uColor: { value: new THREE.Color(this.data.color) },
+            uOpacity: { value: this.data.opacity },
+            tMask: { value: maskTexture }
+        };
+
+        const material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: this.uniforms,
+            transparent: true,
+            side: THREE.DoubleSide
+        });
+
+        const waterMesh = new THREE.Mesh(geometry, material);
+        waterMesh.rotation.x = -Math.PI / 2;
+        waterMesh.position.y = this.data.level;
+        
+        this.el.object3D.add(waterMesh);
+        this.waterMesh = waterMesh;
+    },
+    tick: function(time, timeDelta) {
+        if (this.uniforms) {
+            this.uniforms.uTime.value += (timeDelta / 1000) * this.data.speed;
+        }
+    },
+    remove: function() {
+        if (this.waterMesh) this.el.object3D.remove(this.waterMesh);
+    }
+});
+
+// =====================================
+// Stars Component
+// =====================================
 AFRAME.registerComponent('stars', {
     schema: {
         count: { type: 'number', default: 1000 },
@@ -289,10 +330,12 @@ AFRAME.registerComponent('stars', {
         const material = new THREE.PointsMaterial({
             color: this.data.color,
             size: 0.5,
-            sizeAttenuation: true
+            sizeAttenuation: true,
+            transparent: true,
+            opacity: 0.8
         });
         const stars = new THREE.Points(geometry, material);
-        this.el.setObject3D('stars-points', stars); // Use a unique key
+        this.el.setObject3D('stars-points', stars);
     },
     remove: function() {
         this.el.removeObject3D('stars-points');
@@ -304,120 +347,46 @@ AFRAME.registerComponent('stars', {
 // =====================================
 AFRAME.registerComponent('vr-dem-zoom', {
     schema: {
-        targetEl: { type: 'selector', default: '#ar-scale-adjuster-wrapper' }, // Entity to scale
-        zoomSpeed: { type: 'number', default: 0.05 },   // How fast to zoom (adjust sensitivity)
-        minScale: { type: 'number', default: 0.01 },    // Min uniform scale for the target
-        maxScale: { type: 'number', default: 5.0 },     // Max uniform scale for the target
-        inputEvents: { type: 'array', default: ['thumbstickmoved', 'axismove'] } // Events to listen for
+        targetEl: { type: 'selector', default: '#ar-scale-adjuster-wrapper' },
+        speed: { type: 'number', default: 1.0 }, 
+        minScale: { type: 'number', default: 0.05 },
+        maxScale: { type: 'number', default: 5.0 }
     },
 
     init: function () {
-        this.targetEntity = null;
-        this.isVR = false;
-        this.eventHandlers = {}; // To store bound event handlers for proper removal
-
-        const targetSelector = this.data.targetEl;
-        if (targetSelector) {
-            if (targetSelector.hasLoaded) {
-                this.targetEntity = targetSelector;
-            } else {
-                targetSelector.addEventListener('loaded', () => {
-                    this.targetEntity = targetSelector;
-                }, { once: true }); // Ensure listener is added only once
-            }
-        } else {
-            // If the selector itself is null (e.g. invalid ID provided in HTML)
-            const targetId = this.el.getAttribute('vr-dem-zoom')?.targetEl || this.data.targetEl; // Try to get raw string
-            console.warn(`VR DEM Zoom: Target selector '${targetId}' did not initially find an entity. Will retry on scene load if it was a string.`);
-            if (typeof targetId === 'string' && targetId.startsWith('#')) {
-                this.el.sceneEl.addEventListener('loaded', () => {
-                    this.targetEntity = document.querySelector(targetId);
-                    if (!this.targetEntity) {
-                        console.error(`VR DEM Zoom: Target entity '${targetId}' still not found after scene load.`);
-                    }
-                }, { once: true });
-            }
-        }
-
-
+        this.zoomDirection = 0; 
+        this.targetEntity = this.data.targetEl;
+        this.onThumbstickMoved = this.onThumbstickMoved.bind(this);
         this.onEnterVR = () => { this.isVR = true; };
         this.onExitVR = () => { this.isVR = false; };
 
+        this.el.addEventListener('thumbstickmoved', this.onThumbstickMoved);
         this.el.sceneEl.addEventListener('enter-vr', this.onEnterVR);
         this.el.sceneEl.addEventListener('exit-vr', this.onExitVR);
-
-        this.data.inputEvents.forEach(eventName => {
-            // Bind the handler to `this` context and store it
-            const handler = this.handleControllerInput.bind(this);
-            this.eventHandlers[eventName] = handler;
-            this.el.addEventListener(eventName, handler);
-        });
-        // console.log("vr-dem-zoom initialized for controller:", this.el.id);
     },
 
-    handleControllerInput: function (evt) {
-        if (!this.isVR || !this.targetEntity) return;
-
-        let stickY = 0;
-
-        if (evt.type === 'thumbstickmoved' && evt.detail) {
-            // A-Frame standard: evt.detail.y is negative for forward, positive for backward.
-            stickY = evt.detail.y || 0;
-            // console.log(this.el.id, "thumbstickmoved Y:", stickY);
-        } else if (evt.type === 'axismove' && evt.detail && evt.detail.axis) {
-            // axismove is more raw. The Y axis index can vary.
-            // Assuming this component is on the RIGHT controller.
-            // Oculus Touch right thumbstick Y is typically axis[3] (negative for forward).
-            // Vive right trackpad Y can be axis[1] (after mapping).
-            if (this.el.id && this.el.id.toLowerCase().includes('right')) {
-                if (evt.detail.axis.length > 3) stickY = evt.detail.axis[3]; // Oculus right Y
-                else if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1]; // Vive right Y (mapped) or generic
-            } else if (this.el.id && this.el.id.toLowerCase().includes('left')) {
-                if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1]; // Oculus/Vive left Y
-            } else { // Fallback for unknown controller, try second reported axis
-                if (evt.detail.axis.length > 1) stickY = evt.detail.axis[1];
-            }
-            // console.log(this.el.id, "axismove Y (raw):", stickY, "All axes:", evt.detail.axis);
-        }
-
-
-        if (Math.abs(stickY) > 0.05) { // Deadzone to prevent drift
-            // If stickY is negative (thumbstick pushed forward), we want to zoom IN (increase scale).
-            // If stickY is positive (thumbstick pulled backward), we want to zoom OUT (decrease scale).
-            // Scale factor calculation:
-            // Forward (stickY is neg): 1 - (negative * speed) = 1 + (positive_val) => scale > 1 (zoom in)
-            // Backward (stickY is pos): 1 - (positive * speed) = 1 - (positive_val) => scale < 1 (zoom out)
-            const scaleFactor = 1 - (stickY * this.data.zoomSpeed);
-            this.updateScale(scaleFactor);
+    onThumbstickMoved: function(evt) {
+        const y = evt.detail.y;
+        if (Math.abs(y) > 0.1) {
+            this.zoomDirection = y; 
+        } else {
+            this.zoomDirection = 0;
         }
     },
 
-    updateScale: function (factor) {
-        if (!this.targetEntity) {
-            // console.warn("VR DEM Zoom: Attempted to update scale but targetEntity is null.");
-            return;
-        }
-
-        const currentScale = this.targetEntity.object3D.scale; // Direct THREE.js Vector3 access
-        let newScaleVal = currentScale.x * factor; // Assuming uniform scaling applied to x and then used for all
-
-        newScaleVal = Math.min(Math.max(newScaleVal, this.data.minScale), this.data.maxScale);
-
-        this.targetEntity.setAttribute('scale', { x: newScaleVal, y: newScaleVal, z: newScaleVal });
-        // console.log("Target scale updated to:", newScaleVal);
+    tick: function (time, timeDelta) {
+        if (!this.isVR || !this.targetEntity || this.zoomDirection === 0) return;
+        const s = this.data.speed * (timeDelta / 1000); 
+        const scaleFactor = 1 - (this.zoomDirection * s);
+        const currentScale = this.targetEntity.object3D.scale;
+        let newS = currentScale.x * scaleFactor;
+        newS = Math.min(Math.max(newS, this.data.minScale), this.data.maxScale);
+        this.targetEntity.setAttribute('scale', { x: newS, y: newS, z: newS });
     },
 
     remove: function () {
-        // Clean up scene event listeners
-        if (this.onEnterVR) this.el.sceneEl.removeEventListener('enter-vr', this.onEnterVR);
-        if (this.onExitVR) this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
-
-        // Clean up controller event listeners
-        this.data.inputEvents.forEach(eventName => {
-            if (this.eventHandlers[eventName]) {
-                this.el.removeEventListener(eventName, this.eventHandlers[eventName]);
-            }
-        });
-        this.eventHandlers = {}; // Clear stored handlers
+        this.el.removeEventListener('thumbstickmoved', this.onThumbstickMoved);
+        this.el.sceneEl.removeEventListener('enter-vr', this.onEnterVR);
+        this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
     }
 });

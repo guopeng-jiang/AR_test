@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>AR/VR DEM Viewer</title>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script src="js/dem-components.js"></script>
+    <!-- Optional: For more advanced movement controls if wasd-controls aren't enough -->
+    <!-- <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script> -->
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 20px;
+            color: white;
+            background-color: rgba(0,0,0,0.8);
+            padding: 20px;
+            border-radius: 10px;
+            z-index: 10001;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="loader">Loading DEM...</div>
+
+    <a-scene xr-mode-ui="XRMode:xr"
+             background="color: #111122"
+             antialias="true"
+             renderer="colorManagement: true;"
+             stats="false"
+             debug="false"
+             ui-wrapper="false">
+
+        <a-entity id="ar-scale-adjuster-wrapper"
+                  ar-scale-adjuster="arScale: 0.05; vrScale: 0.5; arYOffset: 0; vrYOffset: 0; defaultPosVR: 0 -1 -3; defaultPosAR: 0 -0.5 -1.5">
+            <a-entity id="dem-display"
+                      dem-terrain="demImagePath: grayscale_raster.png;
+                                   planeSize: 50;
+                                   heightScale: 5;
+                                   segments: 200;"
+                      position="0 0 0">
+            </a-entity>
+        </a-entity>
+
+        <!-- Camera Rig -->
+        <!-- wasd-controls on the rig allows thumbstick movement if controllers are configured -->
+        <a-entity id="rig" position="0 1.6 0"
+                  wasd-controls="enabled: true; fly: true; acceleration: 35;">
+            <!-- Note: For wasd-controls to be driven by VR controller,
+                 the controller component (e.g., oculus-touch-controls)
+                 often needs `wasd-controls-enabled: true` (see left controller below) -->
+            <a-camera look-controls="enabled: true; magicWindowTrackingEnabled: false">
+            </a-camera>
+
+            <!-- Left hand controller - Typically for movement -->
+            <a-entity id="left-controller"
+                     oculus-touch-controls="hand: left; model: true; wasd-controls-enabled: true"
+                     vive-controls="hand: left; model: true; wasd-controls-enabled: true"
+                     windows-motion-controls="hand: left; model: true" /* WMR might not directly drive wasd-controls */
+                     generic-tracked-controller="hand: left" /* Generic fallback */
+                     visible="true">
+                     <!-- For more advanced movement, you might use aframe-extras movement-controls on the rig
+                          and point it to this controller:
+                          Example on rig: movement-controls="controller: #left-controller; fly: true;"
+                          Then remove wasd-controls from rig and wasd-controls-enabled from controller.
+                     -->
+            </a-entity>
+
+            <!-- Right hand controller - For zoom -->
+            <a-entity id="right-controller"
+                     oculus-touch-controls="hand: right; model: true;"
+                     vive-controls="hand: right; model: true;"
+                     windows-motion-controls="hand: right; model: true"
+                     generic-tracked-controller="hand: right"
+                     vr-dem-zoom="targetEl: #ar-scale-adjuster-wrapper; zoomSpeed: 0.1; minScale: 0.05; maxScale: 2.0;"
+                     visible="true">
+            </a-entity>
+        </a-entity>
+
+        <a-light type="ambient" color="#888888" intensity="0.8"></a-light>
+        <a-light type="directional" color="#FFFFFF" intensity="1.0" position="-1 1.5 1"></a-light>
+        <a-light type="directional" color="#FFFFFF" intensity="0.5" position="1 1 -1"></a-light>
+    </a-scene>
+</body>
+</html>
