@@ -390,3 +390,130 @@ AFRAME.registerComponent('vr-dem-zoom', {
         this.el.sceneEl.removeEventListener('exit-vr', this.onExitVR);
     }
 });
+
+// =====================================
+// Cloud / Mist Layer Component
+// =====================================
+AFRAME.registerComponent('cloud-layer', {
+    schema: {
+        altitude: { type: 'number', default: 2.2 }, // Slightly above water
+        color: { type: 'color', default: '#FFFFFF' },
+        opacity: { type: 'number', default: 0.4 },
+        speed: { type: 'number', default: 0.05 },
+        scale: { type: 'number', default: 1.0 } // How "puffy" the clouds are
+    },
+    init: function() {
+        // Wait for terrain to load to get dimensions, or default to 50x50
+        if (this.el.components['dem-terrain']) {
+            this.el.addEventListener('terrain-loaded', (evt) => {
+                this.createClouds(evt.detail.width, evt.detail.height);
+            });
+        } else {
+            this.createClouds(50, 50);
+        }
+    },
+    createClouds: function(width, height) {
+        const geometry = new THREE.PlaneGeometry(width, height, 1, 1);
+
+        // GLSL Shader for procedural noise clouds
+        const vertexShader = `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `;
+
+        const fragmentShader = `
+            uniform float uTime;
+            uniform vec3 uColor;
+            uniform float uOpacity;
+            uniform float uScale;
+            varying vec2 vUv;
+
+            // Simple pseudo-random noise
+            float random (in vec2 st) {
+                return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+            }
+
+            // 2D Noise
+            float noise (in vec2 st) {
+                vec2 i = floor(st);
+                vec2 f = fract(st);
+                float a = random(i);
+                float b = random(i + vec2(1.0, 0.0));
+                float c = random(i + vec2(0.0, 1.0));
+                float d = random(i + vec2(1.0, 1.0));
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(a, b, u.x) + (c - a)* u.y * (1.0 - u.x) + (d - b) * u.x * u.y;
+            }
+
+            // Fractal Brownian Motion (Cloud texture)
+            float fbm (in vec2 st) {
+                float value = 0.0;
+                float amplitude = 0.5;
+                float frequency = 0.0;
+                // Loop of octaves
+                for (int i = 0; i < 5; i++) {
+                    value += amplitude * noise(st);
+                    st *= 2.0;
+                    amplitude *= 0.5;
+                }
+                return value;
+            }
+
+            void main() {
+                // Animate coordinates
+                vec2 uv = vUv * (3.0 * uScale);
+                uv.x += uTime * 0.1; 
+                uv.y += uTime * 0.05;
+
+                // Generate Cloud Pattern
+                float n = fbm(uv);
+                
+                // Vignette (Fade edges so it doesn't look like a square)
+                float dist = distance(vUv, vec2(0.5));
+                float mask = smoothstep(0.5, 0.2, dist);
+
+                // Mix color
+                vec3 finalColor = uColor + (n * 0.2); 
+                
+                // Calculate Alpha (only show lighter parts of noise)
+                float alpha = smoothstep(0.3, 0.8, n) * uOpacity * mask;
+
+                gl_FragColor = vec4(finalColor, alpha);
+            }
+        `;
+
+        this.uniforms = {
+            uTime: { value: 0 },
+            uColor: { value: new THREE.Color(this.data.color) },
+            uOpacity: { value: this.data.opacity },
+            uScale: { value: this.data.scale }
+        };
+
+        const material = new THREE.ShaderMaterial({
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            uniforms: this.uniforms,
+            transparent: true,
+            depthWrite: false, // Don't block objects behind it
+            side: THREE.DoubleSide
+        });
+
+        const cloudMesh = new THREE.Mesh(geometry, material);
+        cloudMesh.rotation.x = -Math.PI / 2;
+        cloudMesh.position.y = this.data.altitude;
+        
+        this.el.object3D.add(cloudMesh);
+        this.cloudMesh = cloudMesh;
+    },
+    tick: function(time, timeDelta) {
+        if (this.uniforms) {
+            this.uniforms.uTime.value += (timeDelta / 1000) * this.data.speed;
+        }
+    },
+    remove: function() {
+        if (this.cloudMesh) this.el.object3D.remove(this.cloudMesh);
+    }
+});
