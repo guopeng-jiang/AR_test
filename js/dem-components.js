@@ -75,7 +75,7 @@ AFRAME.registerComponent('ar-scale-adjuster', {
 });
 
 // =====================================
-// DEM Terrain Component (With Cutout)
+// DEM Terrain Component (With Depth Classification)
 // =====================================
 AFRAME.registerComponent('dem-terrain', {
     schema: {
@@ -85,7 +85,14 @@ AFRAME.registerComponent('dem-terrain', {
         segments: { type: 'number', default: 199 },
         textureRepeat: { type: 'vec2', default: {x: 1, y: 1} },
         color: {type: 'color', default: '#787878'},
-        useImageAsTexture: {type: 'boolean', default: true}
+        useImageAsTexture: {type: 'boolean', default: true},
+        
+        // Depth Classification Settings
+        visualizeDepth: { type: 'boolean', default: false },
+        waterLevel: { type: 'number', default: 2.5 },
+        landColor: { type: 'color', default: '#4B4642' },
+        shallowColor: { type: 'color', default: '#76B6C4' },
+        deepColor: { type: 'color', default: '#001E36' }
     },
 
     init: function () {
@@ -127,7 +134,7 @@ AFRAME.registerComponent('dem-terrain', {
     },
 
     createTerrainMesh: function (demData, demWidth, demHeight) {
-        const { maxSize, heightScale, segments, textureRepeat, color, useImageAsTexture, demImagePath } = this.data;
+        const { maxSize, heightScale, segments, textureRepeat, color, useImageAsTexture, demImagePath, visualizeDepth, waterLevel } = this.data;
 
         // Calculate Aspect Ratio
         const ratio = demWidth / demHeight;
@@ -143,8 +150,15 @@ AFRAME.registerComponent('dem-terrain', {
 
         const geometry = new THREE.PlaneGeometry(meshWidth, meshHeight, segments, segments);
         const positions = geometry.attributes.position;
+        const count = positions.count;
+        
+        // Colors
+        const colors = [];
+        const cLand = new THREE.Color(this.data.landColor);
+        const cShallow = new THREE.Color(this.data.shallowColor);
+        const cDeep = new THREE.Color(this.data.deepColor);
 
-        for (let i = 0; i < positions.count; i++) {
+        for (let i = 0; i < count; i++) {
             const x = positions.getX(i); 
             const y = positions.getY(i); 
 
@@ -159,42 +173,70 @@ AFRAME.registerComponent('dem-terrain', {
 
             const pixelIndex = (demY * demWidth + demX) * 4;
             const grayscaleValue = demData[pixelIndex] / 255; 
+            const height = grayscaleValue * heightScale;
 
-            positions.setZ(i, grayscaleValue * heightScale);
+            positions.setZ(i, height);
+
+            if (visualizeDepth) {
+                if (height >= waterLevel) {
+                    // It is strictly Land
+                    colors.push(cLand.r, cLand.g, cLand.b);
+                } else {
+                    // It is Underwater
+                    // Normalize height: 0 (Deepest) to 1 (Surface/waterLevel)
+                    let t = height / waterLevel;
+                    t = Math.max(0.0, Math.min(1.0, t));
+
+                    // Interpolate: 0 -> Deep, 1 -> Shallow
+                    const mix = cDeep.clone().lerp(cShallow, t);
+                    colors.push(mix.r, mix.g, mix.b);
+                }
+            }
         }
+        
         geometry.computeVertexNormals();
+        
+        if (visualizeDepth) {
+            geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+        }
 
-        // Texture Loading for both Color and Transparency (Alpha)
         const textureLoader = new THREE.TextureLoader();
         let demTexture;
-        
-        // We load the texture regardless, as we need it for the Alpha Map
-        demTexture = textureLoader.load(demImagePath, (tex) => {
-            tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(textureRepeat.x, textureRepeat.y);
-        });
 
         const materialConfig = {
             side: THREE.DoubleSide,
-            // Key to making background invisible:
-            alphaMap: demTexture, 
-            alphaTest: 0.1,       // Discard anything darker than 10% grey
-            transparent: false,   // Keep the rest solid (don't make the mountain ghostly)
             roughness: 1.0,
-            metalness: 0.0
+            metalness: 0.0,
+            vertexColors: visualizeDepth
         };
 
-        if (useImageAsTexture) {
-            materialConfig.map = demTexture;
+        if (visualizeDepth) {
+            // When visualizing depth, we force white base color so vertex colors pop
+            // We also disable the alpha map/texture to prevent holes in deep water (black pixels)
+            materialConfig.color = 0xffffff;
+            materialConfig.map = null;
+            materialConfig.alphaMap = null;
         } else {
-            materialConfig.color = color;
+            // Standard Texture Mode
+            demTexture = textureLoader.load(demImagePath, (tex) => {
+                tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(textureRepeat.x, textureRepeat.y);
+            });
+            
+            materialConfig.alphaMap = demTexture; 
+            materialConfig.alphaTest = 0.1;
+            
+            if (useImageAsTexture) {
+                materialConfig.map = demTexture;
+            } else {
+                materialConfig.color = color;
+            }
         }
 
         const material = new THREE.MeshStandardMaterial(materialConfig);
         const terrainMesh = new THREE.Mesh(geometry, material);
         terrainMesh.rotation.x = -Math.PI / 2;
         
-        // Shadow support
         terrainMesh.castShadow = true;
         terrainMesh.receiveShadow = true;
 
@@ -206,6 +248,80 @@ AFRAME.registerComponent('dem-terrain', {
     },
     remove: function () {
         this.el.removeObject3D('dem-mesh');
+    }
+});
+
+// =====================================
+// Depth Legend Component
+// =====================================
+AFRAME.registerComponent('depth-legend', {
+    schema: {
+        title: { type: 'string', default: 'Lake Depth' },
+        minLabel: { type: 'string', default: '0m' },
+        maxLabel: { type: 'string', default: '-243m' },
+        shallowColor: { type: 'color', default: '#76B6C4' },
+        deepColor: { type: 'color', default: '#001E36' }
+    },
+    init: function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        // Background
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fillRect(0, 0, 256, 512);
+
+        // Title
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 30px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(this.data.title, 128, 50);
+
+        // Gradient Bar
+        const grad = ctx.createLinearGradient(0, 80, 0, 450);
+        grad.addColorStop(0, this.data.shallowColor);
+        grad.addColorStop(1, this.data.deepColor);
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(40, 80, 60, 370);
+
+        // Labels
+        ctx.fillStyle = '#CCCCCC';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'left';
+        
+        // Ticks
+        const steps = 5;
+        for (let i = 0; i <= steps; i++) {
+            const y = 80 + (i * (370 / steps));
+            // Simple interpolation for label text if numeric, otherwise just top/bottom
+            let text = "";
+            if (i === 0) text = this.data.minLabel;
+            else if (i === steps) text = this.data.maxLabel;
+            else {
+                // Approximate depths
+                const val = Math.round((243 / steps) * i);
+                text = `-${val}m`;
+            }
+            
+            // Draw tick line
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(100, y, 10, 2);
+            
+            // Draw Text
+            ctx.fillText(text, 120, y + 8);
+        }
+
+        const texture = new THREE.CanvasTexture(canvas);
+        const material = new THREE.MeshBasicMaterial({ 
+            map: texture, 
+            transparent: true 
+        });
+        const geometry = new THREE.PlaneGeometry(1, 2);
+        
+        const mesh = new THREE.Mesh(geometry, material);
+        this.el.setObject3D('legend-mesh', mesh);
     }
 });
 

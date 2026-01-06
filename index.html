@@ -40,22 +40,46 @@
             
             <!-- DEM Terrain Display -->
             <!-- 
-                 lake-ecosystem:
-                 - fishCount: Number of fish
-                 - plantCount: Number of plants on the bottom
-                 - waterLevel: MUST match the level in water-helper (so fish stay under)
+                 Updates:
+                 - visualizeDepth: true
+                 - landColor: #4B4642
+                 - shallowColor: #76B6C4
+                 - deepColor: #001E36
+                 - waterLevel: 2.5 (Matches water-helper)
             -->
             <a-entity id="dem-display"
                       dem-terrain="demImagePath: grayscale_raster.png;
-                                   maxSize: 50;
-                                   heightScale: 4;
+                                   maxSize: 100;
+                                   heightScale: 10;
                                    segments: 200;
-                                   color: #4B4642; 
+                                   visualizeDepth: true;
+                                   landColor: #4B4642;
+                                   shallowColor: #76B6C4;
+                                   deepColor: #001E36;
+                                   waterLevel: 6;
                                    useImageAsTexture: false;"
-                      water-helper="level: 3.5; color: #76B6C4; opacity: 0.3; speed: 1;"
-                      cloud-layer="altitude: 4; opacity: 0.15; speed: 0.1; scale: 2.0;"
-                      floating-ice="count: 20; minSize: 0.01; maxSize: 0.3; waterLevel: 3.5;"
+                      water-helper="level: 9; color: #76B6C4; opacity: 0.5; speed: 1;"
+                      cloud-layer="altitude: 10; opacity: 0.4; speed: 0.1; scale: 2.0;"
+                      floating-ice="count: 100; minSize: 0.01; maxSize: 1; waterLevel: 9;"
                       position="0 0 0">
+            </a-entity>
+
+            <!-- Depth Legend Panel -->
+            <!-- Placed to the left of the terrain -->
+            <a-entity position="-28 3 0" 
+                      rotation="0 20 0" 
+                      scale="5 5 5"
+                      depth-legend="title: Depth Map; minLabel: 0m; maxLabel: -243m; shallowColor: #76B6C4; deepColor: #001E36;">
+            </a-entity>
+
+            <!-- Info Side Panel (Existing) -->
+            <a-entity position="35 8 5" rotation="0 -20 0">
+                <a-plane width="22" height="16" color="#050505" opacity="0.85" material="side: double"></a-plane>
+                <a-text value="Tasman Lake" color="#76B6C4" align="center" position="0 6 0.1" width="30" font="kelsonsans"></a-text>
+                <a-text value="Tasman Lake is a young, growing proglacial lake in Aoraki / Mount Cook National Park that formed due to the rapid retreat of the Tasman Glacier. Icebergs often float in its milky grey water, which is caused by suspended fine rock powder ground by the glacier." 
+                        color="#FFF" align="left" position="-10 3.5 0.1" width="20" wrap-count="42" baseline="top"></a-text>
+                <a-text value="Surface elevation: 715 m\nArea: 195 ha\nMax. depth: 243 m \nLocation: Aoraki / Mount Cook National Park\nMax. length: 7 km" 
+                        color="#CCC" align="left" position="-10 -1.5 0.1" width="20" wrap-count="42" baseline="top" line-height="60"></a-text>
             </a-entity>
 
         </a-entity>
