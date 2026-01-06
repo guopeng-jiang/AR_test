@@ -517,3 +517,114 @@ AFRAME.registerComponent('cloud-layer', {
         if (this.cloudMesh) this.el.object3D.remove(this.cloudMesh);
     }
 });
+
+// =====================================
+// Floating Ice / Icebergs Component
+// =====================================
+AFRAME.registerComponent('floating-ice', {
+    schema: {
+        count: { type: 'number', default: 20 },
+        minSize: { type: 'number', default: 0.5 },
+        maxSize: { type: 'number', default: 2.0 },
+        waterLevel: { type: 'number', default: 2.5 }, // Must match water-helper
+        color: { type: 'color', default: '#E0F6FF' }  // Very pale ice blue
+    },
+    init: function() {
+        this.icebergs = [];
+        this.terrainMesh = null;
+        this.terrainDims = { w: 50, h: 50 };
+
+        // Wait for terrain to load to find deep water spots
+        if (this.el.components['dem-terrain']) {
+            this.el.addEventListener('terrain-loaded', (evt) => {
+                this.terrainMesh = this.el.getObject3D('dem-mesh');
+                this.terrainDims.w = evt.detail.width;
+                this.terrainDims.h = evt.detail.height;
+                
+                // Allow matrices to update before raycasting
+                setTimeout(() => {
+                    this.spawnIce();
+                }, 100);
+            });
+        }
+    },
+    spawnIce: function() {
+        if (!this.terrainMesh) return;
+
+        // Use Dodecahedron for a "chunky" low-poly ice look
+        const geometry = new THREE.DodecahedronGeometry(1, 0); 
+        const material = new THREE.MeshStandardMaterial({ 
+            color: this.data.color, 
+            roughness: 0.2,
+            metalness: 0.1,
+            flatShading: true
+        });
+
+        const raycaster = new THREE.Raycaster();
+        const down = new THREE.Vector3(0, -1, 0);
+        
+        let placed = 0;
+        let attempts = 0;
+
+        // Try to place icebergs
+        while (placed < this.data.count && attempts < this.data.count * 15) {
+            attempts++;
+            
+            // Random position
+            const x = (Math.random() - 0.5) * this.terrainDims.w;
+            const z = (Math.random() - 0.5) * this.terrainDims.h;
+
+            // Raycast down from water level
+            raycaster.set(new THREE.Vector3(x, this.data.waterLevel, z), down);
+            // intersectObject(object, recursive)
+            const intersects = raycaster.intersectObject(this.terrainMesh, false);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const terrainHeight = hit.point.y;
+
+                // Check depth: Only spawn if water is at least 1m deep here
+                if (this.data.waterLevel - terrainHeight > 1.0) {
+                    
+                    const ice = new THREE.Mesh(geometry, material);
+                    
+                    // Random Size (flattened slightly to float)
+                    const s = this.data.minSize + Math.random() * (this.data.maxSize - this.data.minSize);
+                    ice.scale.set(s, s * 0.6, s);
+
+                    // Position: slightly submerged
+                    const yPos = this.data.waterLevel - (s * 0.2);
+                    ice.position.set(x, yPos, z);
+
+                    // Random Rotation
+                    ice.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+                    // Animation Data
+                    ice.userData = {
+                        baseY: yPos,
+                        bobSpeed: 0.5 + Math.random(),
+                        bobOffset: Math.random() * 10,
+                        rotSpeed: (Math.random() - 0.5) * 0.005
+                    };
+
+                    this.el.object3D.add(ice);
+                    this.icebergs.push(ice);
+                    placed++;
+                }
+            }
+        }
+    },
+    tick: function(t, dt) {
+        const time = t / 1000;
+        this.icebergs.forEach(ice => {
+            // Gentle Bobbing
+            ice.position.y = ice.userData.baseY + Math.sin(time * ice.userData.bobSpeed + ice.userData.bobOffset) * 0.05;
+            // Very slow rotation
+            ice.rotation.y += ice.userData.rotSpeed;
+        });
+    },
+    remove: function() {
+        this.icebergs.forEach(ice => this.el.object3D.remove(ice));
+        this.icebergs = [];
+    }
+});

@@ -48,10 +48,13 @@
             <a-entity id="dem-display"
                       dem-terrain="demImagePath: grayscale_raster.png;
                                    maxSize: 50;
-                                   heightScale: 10;
-                                   segments: 200;"
-                      water-helper="level: 2.5; color: #006994; opacity: 0.6; speed: 2.0;"
-                      cloud-layer="altitude: 3.5; opacity: 0.4; speed: 0.1; scale: 2.0;"
+                                   heightScale: 4;
+                                   segments: 200;
+                                   color: #4B4642; 
+                                   useImageAsTexture: false;"
+                      water-helper="level: 3.5; color: #76B6C4; opacity: 0.3; speed: 1;"
+                      cloud-layer="altitude: 4; opacity: 0.15; speed: 0.1; scale: 2.0;"
+                      floating-ice="count: 20; minSize: 0.01; maxSize: 0.3; waterLevel: 3.5;"
                       position="0 0 0">
             </a-entity>
 
